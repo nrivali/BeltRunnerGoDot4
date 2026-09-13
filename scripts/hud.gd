@@ -1,8 +1,9 @@
 class_name Hud
 extends CanvasLayer
 ## The flight HUD, rebuilt with Control nodes: the status pane bottom-centre (hull, fuel, throttle, cargo, speed), the
-## situation readout top-right (zone, laser, radar, target), a crosshair, and a toast column. Layout follows the browser
-## HUD; the styling is deliberately plain until the art pass.
+## situation readout top-right (zone, laser, radar, target), a crosshair, the cargo ship marker, a toast column, the
+## letterbox for the approach, and the cargo ship services panel while docked. Layout follows the browser HUD; the
+## styling is deliberately plain until the art pass.
 
 const AMBER := Color("#F2A33A")
 const CYAN := Color("#35D6C2")
@@ -26,6 +27,20 @@ var _target_sub: Label
 var _target_hp: ProgressBar
 var _toasts: VBoxContainer
 var _credits: Label
+var _cross: Label
+var _marker: Label
+var _bar_top: ColorRect
+var _bar_bot: ColorRect
+var _caption: Label
+var _flight: Array = []       # everything that hides while docked
+# services panel
+var _panel: PanelContainer
+var _panel_title: Label
+var _panel_sub: Label
+var _gauges: Dictionary = {}  # name -> [ProgressBar, Label]
+var _hold_list: Label
+var _refits: VBoxContainer
+var _ship: Ship
 
 
 func _ready() -> void:
@@ -118,20 +133,28 @@ func _ready() -> void:
 	_target_hp.add_theme_stylebox_override("fill", _fill(AMBER))
 	tv.add_child(_target_hp)
 	# crosshair
-	var cross := Label.new()
-	cross.text = "+"
-	cross.add_theme_font_size_override("font_size", 28)
-	cross.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
-	cross.anchor_left = 0.5
-	cross.anchor_right = 0.5
-	cross.anchor_top = 0.5
-	cross.anchor_bottom = 0.5
-	cross.offset_left = -10
-	cross.offset_right = 10
-	cross.offset_top = -20
-	cross.offset_bottom = 20
-	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(cross)
+	_cross = Label.new()
+	_cross.text = "+"
+	_cross.add_theme_font_size_override("font_size", 28)
+	_cross.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	_cross.anchor_left = 0.5
+	_cross.anchor_right = 0.5
+	_cross.anchor_top = 0.5
+	_cross.anchor_bottom = 0.5
+	_cross.offset_left = -10
+	_cross.offset_right = 10
+	_cross.offset_top = -20
+	_cross.offset_bottom = 20
+	_cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(_cross)
+	# the cargo ship marker: a label that follows the carrier on screen (or sits at the edge nearest to it)
+	_marker = Label.new()
+	_marker.text = "◇ CARGO SHIP"
+	_marker.add_theme_font_size_override("font_size", 13)
+	_marker.add_theme_color_override("font_color", AMBER)
+	_marker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_marker.size = Vector2(180, 40)
+	add_child(_marker)
 	# toasts
 	_toasts = VBoxContainer.new()
 	_toasts.anchor_left = 0.5
@@ -141,6 +164,37 @@ func _ready() -> void:
 	_toasts.offset_top = 100
 	_toasts.alignment = BoxContainer.ALIGNMENT_BEGIN
 	add_child(_toasts)
+	# letterbox and caption for the approach
+	_bar_top = ColorRect.new()
+	_bar_top.color = Color.BLACK
+	_bar_top.anchor_right = 1.0
+	_bar_top.offset_bottom = 70
+	_bar_top.visible = false
+	add_child(_bar_top)
+	_bar_bot = ColorRect.new()
+	_bar_bot.color = Color.BLACK
+	_bar_bot.anchor_right = 1.0
+	_bar_bot.anchor_top = 1.0
+	_bar_bot.anchor_bottom = 1.0
+	_bar_bot.offset_top = -70
+	_bar_bot.visible = false
+	add_child(_bar_bot)
+	_caption = Label.new()
+	_caption.add_theme_font_size_override("font_size", 15)
+	_caption.add_theme_color_override("font_color", AMBER)
+	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caption.anchor_left = 0.5
+	_caption.anchor_right = 0.5
+	_caption.anchor_top = 1.0
+	_caption.anchor_bottom = 1.0
+	_caption.offset_left = -300
+	_caption.offset_right = 300
+	_caption.offset_top = -50
+	_caption.offset_bottom = -20
+	_caption.visible = false
+	add_child(_caption)
+	_flight = [pane, _speed, _right, _target_box, _cross, _marker]
+	_build_panel()
 
 
 func _box() -> StyleBoxFlat:
@@ -190,7 +244,153 @@ func toast(msg: String, bad: bool) -> void:
 	t.timeout.connect(l.queue_free)
 
 
-func update(ship: Ship, belt: Belt) -> void:
+# ---- the cargo ship services panel: gauges, the hold, refits, depart
+func _build_panel() -> void:
+	_panel = PanelContainer.new()
+	_panel.anchor_left = 1.0
+	_panel.anchor_right = 1.0
+	_panel.anchor_bottom = 1.0
+	_panel.offset_left = -440
+	_panel.offset_right = -16
+	_panel.offset_top = 16
+	_panel.offset_bottom = -16
+	_panel.add_theme_stylebox_override("panel", _box())
+	_panel.visible = false
+	add_child(_panel)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_panel.add_child(scroll)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 8)
+	scroll.add_child(v)
+	_panel_title = Label.new()
+	_panel_title.text = "CARGO SHIP"
+	_panel_title.add_theme_font_size_override("font_size", 22)
+	v.add_child(_panel_title)
+	_panel_sub = Label.new()
+	_panel_sub.add_theme_color_override("font_color", DIM)
+	v.add_child(_panel_sub)
+	for g in [["storage", "Cargo ship storage", GREEN], ["fuel", "Cargo ship fuel supply", CYAN], ["parts", "Repair parts", GREEN]]:
+		var head := HBoxContainer.new()
+		var n := Label.new()
+		n.text = g[1]
+		n.add_theme_color_override("font_color", DIM)
+		n.add_theme_font_size_override("font_size", 12)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(n)
+		var t := Label.new()
+		t.add_theme_font_size_override("font_size", 12)
+		head.add_child(t)
+		v.add_child(head)
+		var bar := ProgressBar.new()
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(0, 8)
+		bar.max_value = 1.0
+		bar.add_theme_stylebox_override("fill", _fill(g[2]))
+		v.add_child(bar)
+		_gauges[g[0]] = [bar, t]
+	var hold_head := Label.new()
+	hold_head.text = "YOUR HOLD"
+	hold_head.add_theme_color_override("font_color", DIM)
+	hold_head.add_theme_font_size_override("font_size", 12)
+	v.add_child(hold_head)
+	_hold_list = Label.new()
+	_hold_list.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(_hold_list)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var dep := Button.new()
+	dep.text = "Deposit all  [E]"
+	dep.pressed.connect(func(): if _ship: _ship.deposit_all())
+	row.add_child(dep)
+	var take := Button.new()
+	take.text = "Take all"
+	take.pressed.connect(func(): if _ship: _ship.take_all())
+	row.add_child(take)
+	v.add_child(row)
+	var refit_head := Label.new()
+	refit_head.text = "REFITS"
+	refit_head.add_theme_color_override("font_color", DIM)
+	refit_head.add_theme_font_size_override("font_size", 12)
+	v.add_child(refit_head)
+	_refits = VBoxContainer.new()
+	_refits.add_theme_constant_override("separation", 6)
+	v.add_child(_refits)
+	var depart := Button.new()
+	depart.text = "Depart  [W]"
+	depart.pressed.connect(func(): if _ship: _ship.start_departure())
+	v.add_child(depart)
+
+
+func bind(ship: Ship) -> void:
+	_ship = ship
+	ship.docked_changed.connect(_on_docked)
+
+
+func _on_docked(is_docked: bool) -> void:
+	_panel.visible = is_docked
+	for c in _flight:
+		c.visible = not is_docked
+	if is_docked:
+		refresh_panel()
+
+
+func refresh_panel() -> void:
+	if _ship == null:
+		return
+	_panel_sub.text = "Docked in %s · %s cr" % [CargoShip.bay_name(_ship.dock_side), Data.fmt(State.credits)]
+	var su := State.store_used()
+	_gauges["storage"][0].value = State.store_total() / (Data.STORE_SLOTS * Data.STACK)
+	_gauges["storage"][1].text = "%d / %d slots · %s cr" % [su, Data.STORE_SLOTS, Data.fmt(State.value_of(State.store))]
+	_gauges["fuel"][0].value = State.ship_fuel / Data.CARGO_FUEL_CAP
+	_gauges["fuel"][1].text = "%d / %d" % [roundi(State.ship_fuel), roundi(Data.CARGO_FUEL_CAP)]
+	_gauges["parts"][0].value = State.parts / Data.PARTS_CAP
+	_gauges["parts"][1].text = "%d / %d" % [roundi(State.parts), Data.PARTS_CAP]
+	var lines: Array = []
+	for k in Data.ORE_KEYS:
+		if State.cargo[k] > 0.5:
+			lines.append("%s %d u" % [Data.ORES[k]["name"], roundi(State.cargo[k])])
+	_hold_list.text = (", ".join(lines) + "   ·   worth %s cr at the Hub" % Data.fmt(State.value_of(State.cargo))) if lines.size() > 0 else "The hold is empty."
+	for c in _refits.get_children():
+		c.queue_free()
+	for key in Data.UPGRADES:
+		var u: Dictionary = Data.UPGRADES[key]
+		var i: int = State.up[key]
+		var maxed: bool = i >= u["costs"].size()
+		var row := HBoxContainer.new()
+		var txt := VBoxContainer.new()
+		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var n := Label.new()
+		n.text = "%s  ·  Lv%d" % [u["name"], i + 1]
+		txt.add_child(n)
+		var d := Label.new()
+		d.add_theme_color_override("font_color", DIM)
+		d.add_theme_font_size_override("font_size", 12)
+		d.text = (Data.describe(key, i) + " · fully upgraded") if maxed else (Data.describe(key, i) + "  →  " + Data.describe(key, i + 1))
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		txt.add_child(d)
+		row.add_child(txt)
+		var btn := Button.new()
+		if maxed:
+			btn.text = "Max"
+			btn.disabled = true
+		else:
+			var cost: float = u["costs"][i]
+			btn.text = "%s cr" % Data.fmt(cost)
+			btn.disabled = State.credits < cost
+			btn.pressed.connect(_buy.bind(key))
+		row.add_child(btn)
+		_refits.add_child(row)
+
+
+func _buy(key: String) -> void:
+	var r: Dictionary = State.buy(key)
+	toast(r["msg"], not r["ok"])
+	refresh_panel()
+
+
+func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	var hp: float = State.stat("hull")["hp"]
 	var tank: float = State.stat("tank")["cap"]
 	_hull.value = State.hull / hp
@@ -202,13 +402,14 @@ func update(ship: Ship, belt: Belt) -> void:
 	var ct := State.cargo_total()
 	var cc := State.cargo_capacity()
 	_cargo.value = ct / cc
-	_cargo_t.text = "%d / %d u · %d / %d slots" % [roundi(ct), roundi(cc), _used_slots(), State.cargo_slots()]
+	_cargo_t.text = "%d / %d u · %d / %d slots" % [roundi(ct), roundi(cc), State.used_slots(), State.cargo_slots()]
 	_speed.text = "%d" % roundi(ship.speed() * Data.METRE)
 	var laser := "CUTTING" if ship.laser_on else ("FIRING" if ship.firing else "ready")
 	if ship.overcharge:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
 	var radar := "READY" if ship.radar_cd <= 0.0 else "%.1fs" % ship.radar_cd
-	_right.text = "ZONE  Kessler Belt\nLASER  %s   RANGE  %s m\nRADAR  %s\nALTITUDE  %s km" % [laser, Data.fm(State.stat("range")["reach"]), radar, Data.fmt((ship.true_pos().length() - belt.planet_r) * Data.METRE / 1000.0)]
+	var to_carrier := ship.true_pos().distance_to(carrier.true_pos) if carrier else 0.0
+	_right.text = "ZONE  Kessler Belt\nCARGO SHIP  %s m\nLASER  %s   RANGE  %s m\nRADAR  %s" % [Data.fm(to_carrier), laser, Data.fm(State.stat("range")["reach"]), radar]
 	_credits.text = "%s cr" % Data.fmt(State.credits)
 	if ship.target >= 0 and belt.alive[ship.target] == 1:
 		var i := ship.target
@@ -221,11 +422,38 @@ func update(ship: Ship, belt: Belt) -> void:
 		_target_hp.value = belt.hp[i]
 	else:
 		_target_box.visible = false
-
-
-func _used_slots() -> int:
-	var n := 0
-	for k in State.cargo:
-		if State.cargo[k] > 0.5:
-			n += int(ceil(State.cargo[k] / Data.STACK))
-	return n
+	# the approach plays under letterbox bars; the departure and the pad do not
+	var in_cut: bool = not ship.cut.is_empty() and ship.cut["mode"] == "dock"
+	_bar_top.visible = in_cut
+	_bar_bot.visible = in_cut
+	_caption.visible = in_cut
+	if in_cut:
+		_caption.text = "Approach · %s · Cargo ship · Space skips" % CargoShip.bay_name(int(ship.cut["side"]))
+		_cross.visible = false
+	elif not ship.docked:
+		_cross.visible = ship.cut.is_empty()
+	# the cargo ship marker
+	if carrier and not ship.docked and not in_cut:
+		var cam := ship.cam
+		var p := carrier.position
+		var vp := get_viewport().get_visible_rect().size
+		var behind := cam.is_position_behind(p)
+		var sp := cam.unproject_position(p)
+		if behind:
+			sp = vp - sp
+		var m := Vector2(40, 40)
+		var on := not behind and sp.x > 0 and sp.x < vp.x and sp.y > 0 and sp.y < vp.y
+		if not on:
+			var c := vp * 0.5
+			var d := sp - c
+			if d.length() < 1.0:
+				d = Vector2(1, 0)
+			var sc: float = min(absf((c.x - m.x) / d.x) if d.x != 0.0 else INF, absf((c.y - m.y) / d.y) if d.y != 0.0 else INF)
+			sp = c + d * sc
+		_marker.visible = true
+		_marker.text = ("◇ CARGO SHIP\n%s m" if on else "△ CARGO SHIP · %s m") % Data.fm(to_carrier)
+		_marker.position = sp - _marker.size * 0.5 + Vector2(0, -34 if on else 0)
+	else:
+		_marker.visible = false
+	if ship.docked and Engine.get_process_frames() % 30 == 0:
+		refresh_panel()

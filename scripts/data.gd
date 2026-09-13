@@ -14,6 +14,29 @@ const OVER_BURN := 1.1
 const SHIP_SCALE := 3.0
 const SHIP_R := 16.0 * SHIP_SCALE
 const PULSE_CD := 5.0
+## The cargo ship: its orbit round the planet (inside the ring belt), fuel supply and repair-parts store, and 50-slot storage.
+const DEPOT_ORBIT := 925000.0
+const STATION_SPEED := 102.0
+const CARGO_FUEL_CAP := 2500.0
+const PARTS_CAP := 400
+const STORE_SLOTS := 50
+const DOCK_RANGE := 4500.0   # E within this of the carrier hands the ship to approach control (2,250 m on the readout)
+
+
+## What a refit level gives, for the services panel (the HTML's describe()).
+static func describe(key: String, i: int) -> String:
+	var L: Dictionary = UPGRADES[key]["levels"][i]
+	match key:
+		"laser": return "%s dmg/s" % str(L["rate"])
+		"cargo": return "%s slots" % str(L["slots"])
+		"engine": return "%d thrust · %d top speed" % [roundi(L["thrust"] * METRE), roundi(L["max"] * METRE)]
+		"thrusters": return ("×%s speed on Shift · ×%s fuel burn" % [str(L["mult"]), str(burn_mult(L["mult"]))]) if L["mult"] > 1 else "not fitted"
+		"overcharge": return ("×%s laser damage · %.1f fuel/s while cutting" % [str(L["mult"]), OVER_BURN * L["mult"]]) if L["mult"] > 1.0 else "not fitted"
+		"tank": return "%s fuel" % str(L["cap"])
+		"scanner": return "%s m scan" % fm(L["range"])
+		"range": return "%s m laser reach" % fm(L["reach"])
+		"hull": return "%s hull points" % str(L["hp"])
+	return ""
 
 ## Which laser level opens each ore: the five common ores in order, then the zone exclusives one level after the common
 ## ore of the same tier.
