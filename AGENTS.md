@@ -5,8 +5,13 @@ The two are kept apart on purpose: nothing here touches the HTML game, and nothi
 
 - The browser game is the reference. Port its behaviour and numbers from `belt-runner-3d.html`; do not redesign systems
   while porting. `README.md` tracks what is ported and what is not.
-- Godot 4.3 or newer. Godot was not installed on this machine when the port started (2026-09-13). Until it is, scripts
-  cannot be run here; once it is, `godot --headless --path . --quit` parses every script and is the quickest smoke test.
+- Godot 4.7.2 is installed via winget (2026-09-13). The console build, which prints script output to the terminal, is
+  `C:\Users\rival\AppData\Local\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe`
+  (the `godot` alias needs an admin winget run). Checks, in order of cost: `--headless --path . --quit-after 5` parses and
+  runs five frames; `--path . --resolution 1280x720 -- --smoke` opens a window, runs the scripted mining pass, saves
+  `%APPDATA%\Godot\app_userdata\Belt Runner\smoke.png` and quits. Read the PNG to see the result.
+- GDScript gotcha that bit the first run: `var x := <expression built from a Dictionary value>` fails to parse because the
+  type cannot be inferred; write `var x: float = ...` (or cast) whenever a value comes out of a Dictionary.
 - Edit files in place. Commit one task per commit with a `Co-Authored-By:` trailer naming the agent, as in the HTML repo.
 - Commit `project.godot`, `scenes/`, `scripts/` and any assets. `.godot/` (the import cache) is ignored. Godot's
   `*.import` sidecar files belong in git once assets arrive.

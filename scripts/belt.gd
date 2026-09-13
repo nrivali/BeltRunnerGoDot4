@@ -105,7 +105,7 @@ func _make_field(b: Dictionary, density: float) -> Dictionary:
 	var rad := _rng.randf_range(900.0, 2200.0)
 	var orbit := _rng.randf_range(b["rMin"] + rad, b["rMax"] - rad)
 	var ang := _rng.randf() * TAU
-	var y := _rng.randf_range(-0.5, 0.5) * b["spread"]
+	var y: float = _rng.randf_range(-0.5, 0.5) * float(b["spread"])
 	var keys: Array = b["ores"].keys()
 	var main_ore: String = keys[_rng.randi() % keys.size()]
 	var w := {}
@@ -140,7 +140,7 @@ func _make_rock(b: Dictionary, fld) -> void:
 		while true:
 			var ang := _rng.randf() * TAU
 			var orbit := _rng.randf_range(b["rMin"], b["rMax"])
-			var y := (_rng.randf() + _rng.randf() - 1.0) * b["spread"]
+			var y: float = (_rng.randf() + _rng.randf() - 1.0) * float(b["spread"])
 			p = Vector3(cos(ang) * orbit, y, sin(ang) * orbit)
 			tries += 1
 			if tries >= 30 or p.length() > planet_r * 1.02:
@@ -282,8 +282,8 @@ func ray_hit(origin: Vector3, dir: Vector3, reach: float) -> int:
 	return best
 
 
-## Ore-bearing live rocks within `range` of `from`: count and the nearest one's id.
-func scan(from: Vector3, range: float) -> Dictionary:
+## Ore-bearing live rocks within `range` of `from`: count and the nearest one's id. `only_ore` narrows it to one ore index.
+func scan(from: Vector3, range: float, only_ore: int = -1) -> Dictionary:
 	var n := 0
 	var nearest := -1
 	var nd := INF
@@ -293,7 +293,7 @@ func scan(from: Vector3, range: float) -> Dictionary:
 		if c.distance_squared_to(from) > (range + CHUNK) * (range + CHUNK):
 			continue
 		for i in _chunk_rocks[ci]:
-			if alive[i] == 0 or ore[i] < 0:
+			if alive[i] == 0 or ore[i] < 0 or (only_ore >= 0 and ore[i] != only_ore):
 				continue
 			var d2 := pos[i].distance_squared_to(from)
 			if d2 < r2:
@@ -320,6 +320,6 @@ func kill(i: int) -> float:
 
 
 func rock_name(i: int) -> String:
-	var size := CLS_NAME[cls[i]] + " " if cls[i] > 0 else ""
-	var what := "Barren" if ore[i] < 0 else Data.ORES[Data.ORE_KEYS[ore[i]]]["name"]
+	var size: String = CLS_NAME[cls[i]] + " " if cls[i] > 0 else ""
+	var what: String = "Barren" if ore[i] < 0 else Data.ORES[Data.ORE_KEYS[ore[i]]]["name"]
 	return size + what + " rock"

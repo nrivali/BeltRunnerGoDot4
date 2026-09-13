@@ -4,7 +4,13 @@ The browser game (`C:\Users\rival\Documents\BeltRunner\belt-runner-3d.html`, rep
 to Godot 4. This is the Godot project (repo `nrivali/BeltRunnerGoDot4`), kept separate so the browser game is never
 touched by the port. Open it with Godot 4.3 or newer (Project Manager → Import → pick `project.godot`) and press F5.
 
-## Milestone 1 — one belt, flight, mining, HUD (this commit)
+## Status
+
+Runs on Godot 4.7.2. `godot --path . -- --smoke` is the unattended check: it builds the belt (54,285 rocks in about
+300 ms), parks the ship at the nearest copper rock, cuts it through, watches the ore come aboard, saves a screenshot to
+`user://smoke.png` and quits, printing what happened at each stage. Run it after any change to the belt, ship or HUD.
+
+## Milestone 1 — one belt, flight, mining, HUD
 
 | Piece | Where | Status |
 |---|---|---|

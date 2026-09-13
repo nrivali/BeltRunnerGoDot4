@@ -19,6 +19,7 @@ var laser_on := false
 var firing := false
 var radar_cd := 0.0
 var last_scan := {}
+var mouse_steer := true   # off in the smoke test, where no one is holding the mouse
 
 var main                  # Main (world_offset, spawn_pickup); untyped so its script members resolve
 var belt: Belt
@@ -66,10 +67,10 @@ func _build_body() -> void:
 	hull.roughness = 0.5
 	var body := MeshInstance3D.new()
 	var prism := PrismMesh.new()
-	prism.size = Vector3(14.0 * s, 5.0 * s, 26.0 * s)
+	prism.size = Vector3(14.0 * s, 26.0 * s, 5.0 * s)   # width, length (the prism's tip is +Y before the turn), thickness
 	body.mesh = prism
 	body.material_override = hull
-	body.rotation_degrees = Vector3(-90.0, 0.0, 0.0)   # the prism's point goes forward (-Z)
+	body.rotation_degrees = Vector3(-90.0, 0.0, 0.0)   # tip forward (-Z), flat side up
 	add_child(body)
 	_hull_mesh = body
 	for side in [-1.0, 1.0]:
@@ -132,8 +133,8 @@ func tick(dt: float) -> void:
 	var m := vp.get_mouse_position()
 	var sx := (m.x - size.x * 0.5) / (size.x * 0.5)
 	var sy := (m.y - size.y * 0.5) / (size.y * 0.5)
-	var yaw := -_shape(sx)
-	var pitch := -_shape(sy)
+	var yaw := -_shape(sx) if mouse_steer else 0.0
+	var pitch := -_shape(sy) if mouse_steer else 0.0
 	var roll := 0.0
 	if Input.is_action_pressed("roll_left"):
 		roll += 1.0
@@ -218,7 +219,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 	var end := origin + fwd * reach
 	if target >= 0:
 		var oc: float = State.stat("overcharge")["mult"] if (overcharge and State.fuel > 0.0) else 1.0
-		var can_cut := belt.ore[target] < 0 or Data.ORES[Data.ORE_KEYS[belt.ore[target]]]["unlock"] <= State.up["laser"] + 1
+		var can_cut: bool = belt.ore[target] < 0 or int(Data.ORES[Data.ORE_KEYS[belt.ore[target]]]["unlock"]) <= int(State.up["laser"]) + 1
 		end = belt.pos[target] - (belt.pos[target] - origin).normalized() * belt.radius[target] * 0.85
 		if can_cut:
 			laser_on = true
@@ -234,8 +235,8 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 				target = -1
 	# the beam: a thin cylinder from the nose to wherever the ray ends, in scene space
 	var a := position + fwd * 20.0
-	var b := end - main.world_offset
-	var mid := (a + b) * 0.5
+	var b: Vector3 = end - main.world_offset
+	var mid: Vector3 = (a + b) * 0.5
 	var len := a.distance_to(b)
 	if len > 1.0:
 		_laser.visible = true
@@ -248,7 +249,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 func _break(i: int) -> void:
 	var rname := belt.rock_name(i)
 	var ore_i := belt.ore[i]
-	var at := belt.pos[i] - main.world_offset
+	var at: Vector3 = belt.pos[i] - main.world_offset
 	var r := belt.radius[i]
 	var loose := belt.kill(i)
 	if ore_i >= 0 and loose > 0.0:

@@ -18,6 +18,8 @@ var _save_t := 0.0
 
 
 func _ready() -> void:
+	_smoke = "--smoke" in OS.get_cmdline_user_args()
+	var t0 := Time.get_ticks_msec()
 	_setup_inputs()
 	_setup_environment()
 	var zone: Dictionary = Data.ZONE_KESSLER
@@ -57,6 +59,7 @@ func _ready() -> void:
 	belt.cull(world_offset)
 	ship.update_camera(1.0)
 	hud.toast("Welcome aboard · W throttle, mouse steers, hold the left button to cut. R pulses the radar.", false)
+	print("belt: %d rocks in %d chunks, built in %d ms" % [belt.count, belt._chunk_nodes.size(), Time.get_ticks_msec() - t0])
 
 
 func _setup_inputs() -> void:
@@ -148,3 +151,43 @@ func _process(dt: float) -> void:
 		_save_t = 0.0
 		State.save_game()
 	hud.update(ship, belt)
+	if _smoke:
+		_smoke_step()
+
+
+## `godot --path . -- --smoke`: an unattended run that parks the ship in front of the nearest ore rock, holds the laser on
+## it, writes a screenshot to user://smoke.png and prints what happened, then quits. It is how the port gets checked
+## from a terminal (the same idea as the browser game's ?debug hook).
+var _smoke := false
+var _frame := 0
+var _smoke_rock := -1
+
+
+func _smoke_step() -> void:
+	_frame += 1
+	ship.mouse_steer = false
+	if _frame == 30:
+		var scan: Dictionary = belt.scan(ship.true_pos(), 120000.0, Data.ORE_KEYS.find("copper"))   # copper: the one ore a level-1 laser cuts
+		_smoke_rock = scan["nearest"]
+		if _smoke_rock >= 0:
+			var rp: Vector3 = belt.pos[_smoke_rock] - world_offset
+			var dir := (rp - ship.position).normalized()
+			ship.position = rp - dir * (belt.radius[_smoke_rock] + 700.0)
+			ship.look_at(rp, Vector3.UP)
+			ship.vel = Vector3.ZERO
+			ship.update_camera(1.0)
+			belt.hp[_smoke_rock] = 45.0   # nearly cut through already, so the run also sees it break and the ore come aboard
+			Input.action_press("fire")
+		print("smoke: rocks=%d chunks=%d nearest=%s hp=%.0f" % [belt.count, belt._chunk_nodes.size(), belt.rock_name(_smoke_rock) if _smoke_rock >= 0 else "none", belt.hp[_smoke_rock] if _smoke_rock >= 0 else 0.0])
+	if _frame == 150:
+		var img := get_viewport().get_texture().get_image()
+		img.save_png("user://smoke.png")
+	if _frame == 150 or _frame == 600 or _frame == 1000:
+		var hp := belt.hp[_smoke_rock] if _smoke_rock >= 0 else 0.0
+		print("smoke: target=%d laser_on=%s rock_hp=%.0f fuel=%.1f cargo=%.0f fps=%.0f" % [ship.target, str(ship.laser_on), hp, State.fuel, State.cargo_total(), Engine.get_frames_per_second()])
+	if _frame == 1000:
+		var nearest := INF
+		for p in pickups.get_children():
+			nearest = min(nearest, p.position.distance_to(ship.position))
+		print("smoke: pickups=%d nearest=%.0f screenshot %s" % [pickups.get_child_count(), nearest if nearest < INF else -1.0, ProjectSettings.globalize_path("user://smoke.png")])
+		get_tree().quit()
