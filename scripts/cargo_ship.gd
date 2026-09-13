@@ -13,7 +13,7 @@ const PROW_X1 := 4600.0
 const PROW_R0 := 800.0
 const BAY_X0 := -420.0
 const BAY_X1 := 420.0
-const BAY_Y0 := -176.0
+const BAY_Y0 := -150.0   # the model's deck is the collision floor
 const BAY_Y1 := 176.0
 const BAY_Z_OUT := 900.0
 
@@ -47,9 +47,10 @@ func set_pose(p_true: Vector3, q: Quaternion) -> void:
 	transform.basis = Basis(basis_q)
 
 
-## A bay by its side (+1 or -1): where its pad and mouth are, in the carrier's frame.
+## A bay by its side (+1 or -1): where its pad and mouth are, in the carrier's frame. The pad sits just inside its own
+## mouth (the model's pad_pos / pad_neg markers, 38 above the marker so the hull rests on the deck), facing that mouth.
 static func park_local(side: int) -> Vector3:
-	return Vector3(0.0, -138.0, -side * 525.0)
+	return Vector3(0.0, -100.0, side * 525.0)
 
 
 static func opening_local(side: int) -> Vector3:
@@ -65,8 +66,48 @@ static func bay_name(side: int) -> String:
 	return "Dock 1" if side > 0 else "Dock 2"
 
 
+const MODEL := "res://assets/carrier/cargo_carrier.glb"
+var model: Node3D
+var anchors := {}
+
+
 func _ready() -> void:
-	_build_hull()
+	if not _load_model():
+		_build_hull()
+
+
+## Astra's carrier: the hull, interior, glass and emissive meshes plus named markers (pads, mouths, engines, dish mount,
+## drone docks, drop pad, bridge windows), all in this node's frame (nose +X, hangar along Z). Two warm lights inside
+## the hangar and the engine glows are added here, as the HTML does on install.
+func _load_model() -> bool:
+	var ps = load(MODEL)
+	if ps == null:
+		return false
+	model = ps.instantiate()
+	model.name = "Model"
+	add_child(model)
+	for n in ["hangar_mouth_pos", "hangar_mouth_neg", "pad_pos", "pad_neg", "drop_pad", "dish_mount", "engine_0", "engine_1", "engine_2", "drone_dock_0", "drone_dock_1", "drone_dock_2", "bridge_windows"]:
+		var a := model.find_child(n, true, false)
+		if a is Node3D:
+			anchors[n] = (a as Node3D).position
+	for z in [-525.0, 525.0]:
+		var inner := OmniLight3D.new()
+		inner.light_color = Color("#ffc98c")
+		inner.light_energy = 2.5
+		inner.omni_range = 1150.0
+		inner.omni_attenuation = 1.25
+		inner.position = Vector3(0, 130, z)
+		add_child(inner)
+	for i in 3:
+		var e: Vector3 = anchors.get("engine_%d" % i, Vector3(-3480, 0, 0))
+		var glow := OmniLight3D.new()
+		glow.light_color = Color("#5ed3f0")
+		glow.light_energy = 3.0
+		glow.omni_range = 900.0
+		glow.position = e + Vector3(-100, 0, 0)
+		add_child(glow)
+	print("carrier: model loaded, %d anchors" % anchors.size())
+	return true
 
 
 func to_local_true(p_true: Vector3) -> Vector3:

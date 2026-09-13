@@ -78,8 +78,35 @@ func _ready() -> void:
 	add_child(_laser)
 
 
-## A placeholder hull until the Blender ship comes across: a wedge body, two engine pods and their glow.
+const MODEL := "res://assets/ship/player_ship.glb"
+var model: Node3D
+
+
+## Astra's player ship (delta wings, level-1 fittings), built with its nose along +Z as the HTML flies it, so it is turned
+## round to face this node's -Z and scaled by SHIP_SCALE like the browser's ship group. The wedge placeholder stands in
+## if the model is missing.
 func _build_body() -> void:
+	var ps = load(MODEL)
+	if ps != null:
+		model = ps.instantiate()
+		model.name = "Model"
+		model.scale = Vector3.ONE * Data.SHIP_SCALE
+		model.rotation = Vector3(0.0, PI, 0.0)
+		add_child(model)
+		for n in ["engine_l", "engine_r"]:
+			var a := model.find_child(n, true, false)
+			if a is Node3D:
+				var glow := OmniLight3D.new()
+				glow.light_color = Color("#5ed3f0")
+				glow.light_energy = 1.2
+				glow.omni_range = 40.0
+				(a as Node3D).add_child(glow)
+		print("ship: model loaded")
+		return
+	_build_placeholder()
+
+
+func _build_placeholder() -> void:
 	var s := Data.SHIP_SCALE
 	var hull := StandardMaterial3D.new()
 	hull.albedo_color = Color(0.72, 0.70, 0.66)

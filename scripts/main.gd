@@ -56,7 +56,7 @@ func _ready() -> void:
 	spawn_in_zone(false)
 	ship.update_camera(1.0)
 	hud.toast("Welcome aboard · W launches. In flight: mouse steers, W throttle, hold the left button to cut, R radar, E near the cargo ship to dock. N opens the nav map.", false)
-	print("belt: %d rocks in %d chunks, built in %d ms" % [belt.count, belt._chunk_nodes.size(), Time.get_ticks_msec() - t0])
+	print("belt: %d rocks in %d chunks, built in %d ms" % [belt.count, belt._mms.size(), Time.get_ticks_msec() - t0])
 
 
 func _setup_inputs() -> void:
@@ -127,16 +127,26 @@ func load_zone(z: Dictionary) -> void:
 	var pd: Dictionary = z["planet"]
 	var r: float = pd["r"] * Data.PLANET_SCALE
 	planet_true = pd.get("position", Vector3.ZERO)
-	var sph := SphereMesh.new()
-	sph.radius = r
-	sph.height = r * 2.0
-	sph.radial_segments = 96
-	sph.rings = 48
-	planet.mesh = sph
-	var pm := StandardMaterial3D.new()
-	pm.albedo_color = pd["tint"]
-	pm.roughness = 0.95 if pd.get("central", true) else 0.55
-	planet.material_override = pm
+	# Astra's planets are unit spheres (Ferron's terrain; Meridian's oceans and a cloud layer) scaled to the planet's radius
+	for c in planet.get_children():
+		c.queue_free()
+	var ps = load("res://assets/planets/ferron.glb" if pd["name"] == "Ferron" else "res://assets/planets/homeworld.glb")
+	if ps != null:
+		var m: Node3D = ps.instantiate()
+		m.scale = Vector3.ONE * r
+		planet.add_child(m)
+		planet.mesh = null
+	else:
+		var sph := SphereMesh.new()
+		sph.radius = r
+		sph.height = r * 2.0
+		sph.radial_segments = 96
+		sph.rings = 48
+		planet.mesh = sph
+		var pm := StandardMaterial3D.new()
+		pm.albedo_color = pd["tint"]
+		pm.roughness = 0.95 if pd.get("central", true) else 0.55
+		planet.material_override = pm
 	if colony:
 		colony.queue_free()
 		colony = null
@@ -286,7 +296,7 @@ func _smoke_step() -> void:
 	match _phase:
 		"start":
 			if _frame == 20:
-				print("smoke: zone=%s rocks=%d chunks=%d docked=%s dock=%s" % [zone["id"], belt.count, belt._chunk_nodes.size(), str(ship.docked), CargoShip.bay_name(ship.dock_side)])
+				print("smoke: zone=%s rocks=%d chunks=%d docked=%s dock=%s" % [zone["id"], belt.count, belt._mms.size(), str(ship.docked), CargoShip.bay_name(ship.dock_side)])
 				_shot("smoke_launch")
 				ship.start_departure()
 				_next("leaving")

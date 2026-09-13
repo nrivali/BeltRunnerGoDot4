@@ -5,13 +5,41 @@ extends Node3D
 ## A simplified port of buildColonyAt in belt-runner-3d.html: the same proportions (Data.COLONY) with plain meshes in
 ## place of the merged detail, and no traffic yet. The ring assembly turns slowly; the hub and terminals never move.
 
+const MODEL := "res://assets/colony/garden_habitat.glb"
+
 var _ring: Node3D
 var _beacons: Array = []
 var _t := 0.0
+var model: Node3D
 
 
 func _ready() -> void:
-	_build()
+	if not _load_model():
+		_build()
+
+
+## Astra's garden habitat: Habitat_Rings, Civic_Core and Comms_Dish, authored at 1/1000 scale (the rings reach 55 units,
+## so x1000 puts them at the colony's 55 km). The rings turn; the core stays put.
+func _load_model() -> bool:
+	var ps = load(MODEL)
+	if ps == null:
+		return false
+	model = ps.instantiate()
+	model.name = "Model"
+	model.scale = Vector3.ONE * 1000.0
+	add_child(model)
+	var rings := model.find_child("Habitat_Rings", true, false)
+	_ring = rings if rings is Node3D else model
+	for p in [Vector3(0, 9000, 0), Vector3(0, -9000, 0), Vector3(40000, 2000, 0), Vector3(-40000, 2000, 0), Vector3(0, 2000, 40000), Vector3(0, 2000, -40000)]:
+		var l := OmniLight3D.new()
+		l.light_color = Color("#dce8ff")
+		l.light_energy = 4.0
+		l.omni_range = 30000.0
+		l.omni_attenuation = 1.2
+		l.position = p
+		add_child(l)
+	print("colony: garden habitat loaded")
+	return true
 
 
 func tick(dt: float) -> void:
