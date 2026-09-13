@@ -1,7 +1,8 @@
 # Belt Runner — Godot 4 port
 
-The browser game (`../belt-runner-3d.html`) is being moved to Godot 4. This folder is the Godot project. Open it with
-Godot 4.3 or newer (Project Manager → Import → pick `project.godot`) and press F5.
+The browser game (`C:\Users\rival\Documents\BeltRunner\belt-runner-3d.html`, repo `nrivali/BeltRunner`) is being moved
+to Godot 4. This is the Godot project (repo `nrivali/BeltRunnerGoDot4`), kept separate so the browser game is never
+touched by the port. Open it with Godot 4.3 or newer (Project Manager → Import → pick `project.godot`) and press F5.
 
 ## Milestone 1 — one belt, flight, mining, HUD (this commit)
 
