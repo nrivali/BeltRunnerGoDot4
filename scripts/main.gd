@@ -254,6 +254,8 @@ func _process(dt: float) -> void:
 	if ship.docked and not ship.hold:
 		ship.position += moved
 	ship.tick(dt)
+	Audio.engine(ship.throttle, ship.afterburning, ship.braking, ship.docked or not ship.cut.is_empty() or not ship.warp.is_empty())
+	Audio.laser(ship.firing and not ship.docked, ship.laser_on)
 	for p in pickups.get_children():
 		if p.tick(dt, ship.position):
 			p.queue_free()
@@ -356,6 +358,8 @@ func _smoke_step() -> void:
 		"leaving":
 			if _phase_frame == 90:
 				_shot("smoke_taxi")
+			if _phase_frame == 60:
+				print("smoke: taxi loops (idle) %s" % str(Audio.loop_state()))
 			if ship.cut.is_empty() and not ship.docked:
 				print("smoke: launched · speed=%.0f throttle=%.2f" % [ship.speed(), ship.throttle])
 				var scan: Dictionary = belt.scan(ship.true_pos(), 200000.0, Data.ORE_KEYS.find("copper"))   # copper: the one ore a level-1 laser cuts
@@ -374,6 +378,12 @@ func _smoke_step() -> void:
 			if _phase_frame == 60:
 				_shot("smoke_mine")
 				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock]])
+				print("smoke: laser loops %s" % str(Audio.loop_state()))
+			if _phase_frame == 100:
+				ship.throttle = 0.6   # a burst of throttle so the engine loops can be read
+			if _phase_frame == 150:
+				print("smoke: engine loops at throttle %.1f %s" % [ship.throttle, str(Audio.loop_state())])
+				ship.throttle = 0.0
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])

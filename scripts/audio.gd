@@ -8,7 +8,16 @@ extends Node
 
 const RADIO_LEAD := 0.32
 const PA_LEAD := 1.1
-const GAIN := {"radio_on": -6.0, "radio_off": -7.0, "pa_chime": -6.0, "dock": -3.0, "chime": -6.0, "cash": -4.0, "stow": -4.0, "pickup": -7.0, "rock_break": -3.0, "hit": -3.0}
+const GAIN := {"radio_on": -6.0, "radio_off": -7.0, "pa_chime": -6.0, "dock": -3.0, "chime": -6.0, "cash": -4.0, "stow": -4.0, "pickup": -7.0, "rock_break": -3.0, "hit": -3.0, "laser_on": -6.0, "laser_off": -8.0, "laser_bite": -7.0, "radar_ping": -6.0}
+
+## The continuous layers, ported from the SFX module's loops: an idle hum under a thrust roar that rises in pitch with
+## the throttle, a boost roar on top, retro hiss while braking; a throbbing beam while the laser fires with a sizzling
+## cut layered on when it is on a rock; and the quiet space hum that is always there. Each runs on its own player at
+## gain zero and is faded toward a target every frame.
+const LOOP_NAMES := ["engine_idle", "engine_thrust", "engine_boost", "retro", "laser_beam", "laser_cut", "space_hum"]
+var _loops := {}       # name -> {player, gain, target, tau}
+var _laser_on := false
+var _laser_cutting := false
 
 var _streams := {}
 var _voice: AudioStreamPlayer
@@ -34,6 +43,73 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_pool.append(p)
+	_start_loops()
+
+
+func _start_loops() -> void:
+	for nm in LOOP_NAMES:
+		var s := stream(nm)
+		if s == null:
+			continue
+		if s is AudioStreamMP3:
+			(s as AudioStreamMP3).loop = true
+		var p := AudioStreamPlayer.new()
+		p.stream = s
+		p.volume_db = -80.0
+		add_child(p)
+		p.play()
+		_loops[nm] = {"player": p, "gain": 0.0, "target": 0.07 if nm == "space_hum" else 0.0, "tau": 0.5}
+
+
+func _loop_target(name: String, g: float, tau: float) -> void:
+	if _loops.has(name):
+		_loops[name]["target"] = g
+		_loops[name]["tau"] = tau
+
+
+func _process(dt: float) -> void:
+	for nm in _loops:
+		var l: Dictionary = _loops[nm]
+		var g: float = l["gain"]
+		var t: float = l["target"]
+		g += (t - g) * (1.0 - exp(-dt / max(0.02, float(l["tau"]))))
+		l["gain"] = g
+		var p: AudioStreamPlayer = l["player"]
+		p.volume_db = linear_to_db(g) if g > 0.001 else -80.0
+
+
+## The engine mix for this frame (the HTML's SFX.engine): throttle 0..1, afterburner on, retros firing, or parked/idle.
+func engine(throttle: float, boost: bool, braking: bool, idle: bool) -> void:
+	var th := 0.0 if idle else throttle
+	_loop_target("engine_idle", 0.05 if idle else 0.14, 0.2)
+	_loop_target("engine_thrust", th * 0.5, 0.15)
+	_loop_target("engine_boost", 0.55 if (boost and not idle) else 0.0, 0.2)
+	_loop_target("retro", 0.3 if braking else 0.0, 0.06)
+	if _loops.has("engine_thrust"):
+		var p: AudioStreamPlayer = _loops["engine_thrust"]["player"]
+		p.pitch_scale = lerp(p.pitch_scale, 0.85 + th * 0.3, 0.1)
+
+
+## The laser mix (the HTML's SFX.laser): the beam loop while firing, the cut loop on a rock, and the on/off/bite transients.
+func laser(firing: bool, cutting: bool) -> void:
+	if firing and not _laser_on:
+		sfx("laser_on")
+	if not firing and _laser_on:
+		sfx("laser_off")
+	if cutting and not _laser_cutting:
+		sfx("laser_bite")
+	_laser_on = firing
+	_laser_cutting = cutting
+	_loop_target("laser_beam", (0.16 if cutting else 0.26) if firing else 0.0, 0.12 if firing else 0.06)
+	_loop_target("laser_cut", 0.32 if cutting else 0.0, 0.1)
+
+
+## Current loop gains, for the smoke test.
+func loop_state() -> Dictionary:
+	var out := {}
+	for nm in _loops:
+		out[nm] = snappedf(_loops[nm]["gain"], 0.001)
+	return out
 
 
 func _setup_intercom_bus() -> void:

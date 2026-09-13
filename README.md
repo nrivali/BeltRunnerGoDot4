@@ -20,7 +20,8 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 | The card top-left and pulsing rings round the HUD piece each step talks about | `scripts/hud.gd` | rebuilt |
 | Recorded voice lines: the tutorial's 14, five approach calls, colony control, warp ready | `scripts/audio.gd`, `sfx/*.mp3` | ported; radio squelch open and close round every line, one voice at a time |
 | Hangar deck announcements over the intercom (band-pass, overdrive, big-room reverb, PA chime) | `scripts/audio.gd` | ported to an audio bus with Godot's own effects |
-| One-shot effects: dock, chime, cash, stow, pickup, rock break, radar ping | `scripts/audio.gd` | wired (the engine, laser and retro loops and the ambience beats are not yet) |
+| One-shot effects: dock, chime, cash, stow, pickup, rock break, radar ping, laser on / bite / off | `scripts/audio.gd` | wired |
+| Continuous loops: engine idle, thrust (pitch rises with the throttle), boost, retro hiss, laser beam and cut, the space hum | `scripts/audio.gd` | ported with the browser's gains and fade times; each loop faded toward its target every frame |
 | Flight controls list bottom-left (C hides it), inventory panel (Tab / I) | `scripts/hud.gd` | rebuilt (a list, not the drag-and-drop grid) |
 | Tutorial progress saved (`tut`, -1 once done); a new game starts on step 1 | `scripts/game_state.gd` | ported |
 
@@ -92,9 +93,9 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: traffic, drones and the dish turret, the engine/laser/retro loops and ambience beats, rocks drifting on their
-orbit rails, rock fragments, raiders, the tow, the Q lock, the drag-and-drop inventory grid, a menu and settings. The
-game logic for those exists in the HTML and ports the same way.
+Not yet: traffic, drones and the dish turret, rocks drifting on their orbit rails, rock fragments, raiders, the tow, the
+Q lock, the drag-and-drop inventory grid, a menu and settings (sound volume). The game logic for those exists in the
+HTML and ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
 
 ## Conventions
 
