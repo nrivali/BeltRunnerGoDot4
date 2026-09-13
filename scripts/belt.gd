@@ -40,12 +40,36 @@ var planet_r := 0.0
 var world_r := 0.0
 
 
+## Throw the current belt away (zone change).
+func clear() -> void:
+	for n in _chunk_nodes:
+		n.queue_free()
+	_chunk_nodes = []
+	_chunk_centre = []
+	_chunk_rocks = []
+	_chunk_key = {}
+	pos = PackedVector3Array()
+	radius = PackedFloat32Array()
+	ore = PackedInt32Array()
+	hp = PackedFloat32Array()
+	hp_max = PackedFloat32Array()
+	amount = PackedFloat32Array()
+	cls = PackedByteArray()
+	alive = PackedByteArray()
+	chunk_of = PackedInt32Array()
+	slot_of = PackedInt32Array()
+	count = 0
+
+
 func build(zone: Dictionary, seed: int) -> void:
 	_rng.seed = seed
-	planet_r = zone["planet"]["r"] * Data.PLANET_SCALE
+	var central: bool = zone["planet"].get("central", true)
+	planet_r = zone["planet"]["r"] * Data.PLANET_SCALE if central else 0.0
 	world_r = planet_r + Data.WORLD_EDGE_BASE * Data.WORLD_SCALE
 	var density: float = zone["density"]
 	var amount_mult: float = zone["amountMult"]
+	if density <= 0.0:
+		return   # a zone with no belts (the Hub)
 	_mesh = SphereMesh.new()
 	_mesh.radius = 1.0
 	_mesh.height = 2.0

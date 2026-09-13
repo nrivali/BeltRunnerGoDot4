@@ -1,7 +1,7 @@
 extends Node
-## The pilot's persistent state: credits, hold, fuel, hull and refit levels, plus the cargo ship's storage, fuel supply
-## and repair parts. Ported from `state` in belt-runner-3d.html. Saved as JSON under user:// with the browser save's
-## field names, so a future importer can read the localStorage save straight in.
+## The pilot's persistent state: credits, hold, fuel, hull and refit levels, the cargo ship's storage, fuel supply and
+## repair parts, the colony market and which zone you are in. Ported from `state` in belt-runner-3d.html. Saved as
+## JSON under user:// with the browser save's field names, so a future importer can read the localStorage save in.
 
 const SAVE_PATH := "user://belt-runner-save.json"
 
@@ -14,6 +14,10 @@ var up := {"laser": 0, "cargo": 0, "engine": 0, "tank": 0, "scanner": 0, "range"
 var depot := {"laser": 0, "collectors": 0}   # cargo ship upgrades (not active in the port yet; kept so saves round-trip)
 var ship_fuel := 1200.0   # the cargo ship's fuel supply, which the ship's tank fills from while docked
 var parts := 120.0        # repair parts aboard the cargo ship, one per hull point mended while docked
+var market := {}          # ore key -> price multiplier, drifting toward market_next every MARKET_PERIOD seconds
+var market_next := {}
+var market_t := 0.0
+var zone_id := "kessler"
 var mined := 0.0
 var earned := 0.0
 var time := 0.0
@@ -25,6 +29,8 @@ func _ready() -> void:
 			cargo[k] = 0.0
 		if not store.has(k):
 			store[k] = 0.0
+		market[k] = 1.0
+		market_next[k] = 1.0
 	load_game()
 
 
@@ -129,13 +135,77 @@ func take_all() -> float:
 	return moved
 
 
-## The value of a hold or storage dictionary at Hub prices (no market drift in the port yet).
-static func value_of(bag: Dictionary) -> float:
+# ---- the market (the Hub's colony is the only one): prices drift, exports carry the premium
+func price(k: String) -> float:
+	var o: Dictionary = Data.ORES[k]
+	return o["price"] * float(market[k]) * (Data.EXPORT_BONUS if o.has("zone") else 1.0)
+
+
+## The value of a hold or storage dictionary at today's prices.
+func value_of(bag: Dictionary) -> float:
 	var v := 0.0
 	for k in bag:
-		var o: Dictionary = Data.ORES[k]
-		v += bag[k] * o["price"] * (Data.EXPORT_BONUS if o.has("zone") else 1.0)
+		v += bag[k] * price(k)
 	return v
+
+
+func tick_market(dt: float) -> void:
+	market_t -= dt
+	if market_t <= 0.0:
+		market_t = Data.MARKET_PERIOD
+		for k in Data.ORE_KEYS:
+			market_next[k] = randf_range(0.8, 1.25)
+	for k in Data.ORE_KEYS:
+		market[k] += (market_next[k] - market[k]) * min(1.0, dt * 0.08)
+
+
+## Sell the given ores from the hold and/or the storage. Returns {units, credits}.
+func sell(keys: Array, from_hold: bool, from_store: bool) -> Dictionary:
+	var cr := 0.0
+	var units := 0.0
+	for k in keys:
+		var u := 0.0
+		if from_hold:
+			u += cargo[k]
+			cargo[k] = 0.0
+		if from_store:
+			u += store[k]
+			store[k] = 0.0
+		if u > 0.01:
+			cr += u * price(k)
+			units += u
+	if units >= 0.5:
+		credits += cr
+		earned += cr
+		save_game()
+	return {"units": units, "credits": cr}
+
+
+## Fill the cargo ship's fuel supply at the colony, as far as credits go. Returns {units, cost, partial}.
+func refuel_cargo_ship() -> Dictionary:
+	var want := Data.CARGO_FUEL_CAP - ship_fuel
+	var u: float = min(want, credits / Data.CARGO_FUEL_PRICE)
+	if want < 0.5:
+		return {"units": 0.0, "cost": 0.0, "partial": false, "msg": "Fuel supply is already full"}
+	if u < 1.0:
+		return {"units": 0.0, "cost": 0.0, "partial": false, "msg": "Not enough credits for fuel"}
+	ship_fuel += u
+	credits = max(0.0, credits - u * Data.CARGO_FUEL_PRICE)
+	save_game()
+	return {"units": u, "cost": u * Data.CARGO_FUEL_PRICE, "partial": u < want - 0.5, "msg": ""}
+
+
+func buy_parts() -> Dictionary:
+	var want := float(Data.PARTS_CAP) - parts
+	var n: float = min(want, floor(credits / Data.PARTS_PRICE))
+	if want < 0.5:
+		return {"units": 0.0, "cost": 0.0, "partial": false, "msg": "Repair parts store is already full"}
+	if n < 1.0:
+		return {"units": 0.0, "cost": 0.0, "partial": false, "msg": "Not enough credits for repair parts"}
+	parts += n
+	credits -= n * Data.PARTS_PRICE
+	save_game()
+	return {"units": n, "cost": n * Data.PARTS_PRICE, "partial": n < want - 0.5, "msg": ""}
 
 
 # ---- refits
@@ -160,7 +230,7 @@ func save_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "shipFuel": ship_fuel, "parts": parts, "mined": mined, "earned": earned, "time": time}))
+	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "mined": mined, "earned": earned, "time": time}))
 
 
 func load_game() -> bool:
@@ -180,11 +250,15 @@ func load_game() -> bool:
 	mined = float(s.get("mined", mined))
 	earned = float(s.get("earned", earned))
 	time = float(s.get("time", time))
+	zone_id = str(s.get("zone", zone_id))
 	var c = s.get("cargo", {})
 	var st = s.get("store", {})
+	var mk = s.get("market", {})
 	for k in Data.ORE_KEYS:
 		cargo[k] = float(c.get(k, 0.0))
 		store[k] = float(st.get(k, 0.0))
+		market[k] = float(mk.get(k, 1.0))
+		market_next[k] = market[k]
 	var u = s.get("up", {})
 	for k in up:
 		up[k] = clampi(int(u.get(k, 0)), 0, Data.UPGRADES[k]["levels"].size() - 1)

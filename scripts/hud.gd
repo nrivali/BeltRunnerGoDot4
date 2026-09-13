@@ -2,14 +2,16 @@ class_name Hud
 extends CanvasLayer
 ## The flight HUD, rebuilt with Control nodes: the status pane bottom-centre (hull, fuel, throttle, cargo, speed), the
 ## situation readout top-right (zone, laser, radar, target), a crosshair, the cargo ship marker, a toast column, the
-## letterbox for the approach, and the cargo ship services panel while docked. Layout follows the browser HUD; the
-## styling is deliberately plain until the art pass.
+## letterbox and caption for cutscenes, the fade for a jump, the nav map, and the cargo ship services panel (with the
+## colony market at the Hub) while docked. Layout follows the browser HUD; the styling is plain until the art pass.
 
 const AMBER := Color("#F2A33A")
 const CYAN := Color("#35D6C2")
 const GREEN := Color("#6BD69A")
 const RED := Color("#FF2E63")
 const DIM := Color(0.62, 0.66, 0.78)
+
+var zone: Dictionary = Data.ZONE_KESSLER
 
 var _hull: ProgressBar
 var _fuel: ProgressBar
@@ -32,6 +34,7 @@ var _marker: Label
 var _bar_top: ColorRect
 var _bar_bot: ColorRect
 var _caption: Label
+var _fade: ColorRect
 var _flight: Array = []       # everything that hides while docked
 # services panel
 var _panel: PanelContainer
@@ -40,7 +43,12 @@ var _panel_sub: Label
 var _gauges: Dictionary = {}  # name -> [ProgressBar, Label]
 var _hold_list: Label
 var _refits: VBoxContainer
+var _market: VBoxContainer
 var _ship: Ship
+# nav map
+var _map: PanelContainer
+var _map_body: VBoxContainer
+var map_open := false
 
 
 func _ready() -> void:
@@ -164,7 +172,13 @@ func _ready() -> void:
 	_toasts.offset_top = 100
 	_toasts.alignment = BoxContainer.ALIGNMENT_BEGIN
 	add_child(_toasts)
-	# letterbox and caption for the approach
+	# fade to black for a jump, letterbox and caption for cutscenes
+	_fade = ColorRect.new()
+	_fade.color = Color(0, 0, 0, 0)
+	_fade.anchor_right = 1.0
+	_fade.anchor_bottom = 1.0
+	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_fade)
 	_bar_top = ColorRect.new()
 	_bar_top.color = Color.BLACK
 	_bar_top.anchor_right = 1.0
@@ -195,11 +209,12 @@ func _ready() -> void:
 	add_child(_caption)
 	_flight = [pane, _speed, _right, _target_box, _cross, _marker]
 	_build_panel()
+	_build_map()
 
 
 func _box() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.055, 0.07, 0.14, 0.85)
+	sb.bg_color = Color(0.055, 0.07, 0.14, 0.88)
 	sb.border_color = Color(0.3, 0.36, 0.5, 0.6)
 	sb.set_border_width_all(1)
 	sb.set_content_margin_all(10)
@@ -233,6 +248,22 @@ func _gauge(grid: GridContainer, label: String, color: Color) -> Array:
 	return [bar, text]
 
 
+func _head(parent: Node, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_color_override("font_color", DIM)
+	l.add_theme_font_size_override("font_size", 12)
+	parent.add_child(l)
+
+
+func _button(parent: Node, text: String, fn: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.pressed.connect(fn)
+	parent.add_child(b)
+	return b
+
+
 func toast(msg: String, bad: bool) -> void:
 	var l := Label.new()
 	l.text = msg
@@ -244,13 +275,13 @@ func toast(msg: String, bad: bool) -> void:
 	t.timeout.connect(l.queue_free)
 
 
-# ---- the cargo ship services panel: gauges, the hold, refits, depart
+# ---- the cargo ship services panel: gauges, the hold, the market at the Hub, refits, depart / nav map
 func _build_panel() -> void:
 	_panel = PanelContainer.new()
 	_panel.anchor_left = 1.0
 	_panel.anchor_right = 1.0
 	_panel.anchor_bottom = 1.0
-	_panel.offset_left = -440
+	_panel.offset_left = -460
 	_panel.offset_right = -16
 	_panel.offset_top = 16
 	_panel.offset_bottom = -16
@@ -270,6 +301,7 @@ func _build_panel() -> void:
 	v.add_child(_panel_title)
 	_panel_sub = Label.new()
 	_panel_sub.add_theme_color_override("font_color", DIM)
+	_panel_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_panel_sub)
 	for g in [["storage", "Cargo ship storage", GREEN], ["fuel", "Cargo ship fuel supply", CYAN], ["parts", "Repair parts", GREEN]]:
 		var head := HBoxContainer.new()
@@ -290,42 +322,34 @@ func _build_panel() -> void:
 		bar.add_theme_stylebox_override("fill", _fill(g[2]))
 		v.add_child(bar)
 		_gauges[g[0]] = [bar, t]
-	var hold_head := Label.new()
-	hold_head.text = "YOUR HOLD"
-	hold_head.add_theme_color_override("font_color", DIM)
-	hold_head.add_theme_font_size_override("font_size", 12)
-	v.add_child(hold_head)
+	# the market (filled in at the Hub)
+	_market = VBoxContainer.new()
+	_market.add_theme_constant_override("separation", 6)
+	v.add_child(_market)
+	_head(v, "YOUR HOLD")
 	_hold_list = Label.new()
 	_hold_list.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_hold_list)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	var dep := Button.new()
-	dep.text = "Deposit all  [E]"
-	dep.pressed.connect(func(): if _ship: _ship.deposit_all())
-	row.add_child(dep)
-	var take := Button.new()
-	take.text = "Take all"
-	take.pressed.connect(func(): if _ship: _ship.take_all())
-	row.add_child(take)
+	_button(row, "Deposit all  [E]", func(): if _ship: _ship.deposit_all())
+	_button(row, "Take all", func(): if _ship: _ship.take_all())
 	v.add_child(row)
-	var refit_head := Label.new()
-	refit_head.text = "REFITS"
-	refit_head.add_theme_color_override("font_color", DIM)
-	refit_head.add_theme_font_size_override("font_size", 12)
-	v.add_child(refit_head)
+	_head(v, "REFITS")
 	_refits = VBoxContainer.new()
 	_refits.add_theme_constant_override("separation", 6)
 	v.add_child(_refits)
-	var depart := Button.new()
-	depart.text = "Depart  [W]"
-	depart.pressed.connect(func(): if _ship: _ship.start_departure())
-	v.add_child(depart)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 8)
+	_button(foot, "Depart  [W]", func(): if _ship: _ship.start_departure())
+	_button(foot, "Nav map  [N]", func(): toggle_map())
+	v.add_child(foot)
 
 
 func bind(ship: Ship) -> void:
 	_ship = ship
 	ship.docked_changed.connect(_on_docked)
+	ship.map_requested.connect(open_map)
 
 
 func _on_docked(is_docked: bool) -> void:
@@ -334,12 +358,15 @@ func _on_docked(is_docked: bool) -> void:
 		c.visible = not is_docked
 	if is_docked:
 		refresh_panel()
+	elif map_open:
+		close_map()
 
 
 func refresh_panel() -> void:
 	if _ship == null:
 		return
-	_panel_sub.text = "Docked in %s · %s cr" % [CargoShip.bay_name(_ship.dock_side), Data.fmt(State.credits)]
+	var at_hub: bool = _ship.hold
+	_panel_sub.text = ("Holding station off %s · %s cr" % [zone.get("colony", "the colony"), Data.fmt(State.credits)]) if at_hub else ("Docked in %s · %s cr" % [CargoShip.bay_name(_ship.dock_side), Data.fmt(State.credits)])
 	var su := State.store_used()
 	_gauges["storage"][0].value = State.store_total() / (Data.STORE_SLOTS * Data.STACK)
 	_gauges["storage"][1].text = "%d / %d slots · %s cr" % [su, Data.STORE_SLOTS, Data.fmt(State.value_of(State.store))]
@@ -352,6 +379,7 @@ func refresh_panel() -> void:
 		if State.cargo[k] > 0.5:
 			lines.append("%s %d u" % [Data.ORES[k]["name"], roundi(State.cargo[k])])
 	_hold_list.text = (", ".join(lines) + "   ·   worth %s cr at the Hub" % Data.fmt(State.value_of(State.cargo))) if lines.size() > 0 else "The hold is empty."
+	_refresh_market(at_hub)
 	for c in _refits.get_children():
 		c.queue_free()
 	for key in Data.UPGRADES:
@@ -384,10 +412,175 @@ func refresh_panel() -> void:
 		_refits.add_child(row)
 
 
+## The colony market: what is aboard and what it fetches, sell buttons, today's prices, and the cargo ship's fuel and parts.
+func _refresh_market(at_hub: bool) -> void:
+	for c in _market.get_children():
+		c.queue_free()
+	if not at_hub:
+		return
+	_head(_market, "%s MARKET" % str(zone.get("colony", "colony")).to_upper())
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 12)
+	for h in ["Ore", "Hold", "Storage", "cr / u", "Value"]:
+		var l := Label.new()
+		l.text = h
+		l.add_theme_color_override("font_color", DIM)
+		l.add_theme_font_size_override("font_size", 11)
+		grid.add_child(l)
+	var total := 0.0
+	var any := false
+	for k in Data.ORE_KEYS:
+		var h: float = State.cargo[k]
+		var s: float = State.store[k]
+		if h + s < 0.5:
+			continue
+		any = true
+		var p: float = State.price(k)
+		total += (h + s) * p
+		for cell in [Data.ORES[k]["name"], "%d" % roundi(h), "%d" % roundi(s), "%.1f" % p, Data.fmt((h + s) * p)]:
+			var l := Label.new()
+			l.text = cell
+			l.add_theme_font_size_override("font_size", 12)
+			grid.add_child(l)
+	_market.add_child(grid)
+	if any:
+		var tot := Label.new()
+		tot.text = "Everything aboard   %s cr" % Data.fmt(total)
+		tot.add_theme_font_size_override("font_size", 14)
+		_market.add_child(tot)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		_button(row, "Sell everything", func(): if _ship: _ship.sell(Data.ORE_KEYS, true, true))
+		_button(row, "Hold only", func(): if _ship: _ship.sell(Data.ORE_KEYS, true, false))
+		_button(row, "Storage only", func(): if _ship: _ship.sell(Data.ORE_KEYS, false, true))
+		_market.add_child(row)
+	else:
+		var none := Label.new()
+		none.text = "Nothing aboard to sell."
+		none.add_theme_color_override("font_color", DIM)
+		_market.add_child(none)
+	var prices: Array = []
+	for k in Data.ORE_KEYS:
+		var d := roundi((float(State.market[k]) - 1.0) * 100.0)
+		var drift := "" if d == 0 else (" ▲%d%%" % d if d > 0 else " ▼%d%%" % -d)
+		prices.append("%s %.1f%s" % [Data.ORES[k]["name"], State.price(k), drift])
+	var pl := Label.new()
+	pl.text = "Prices today: " + " · ".join(prices)
+	pl.add_theme_color_override("font_color", DIM)
+	pl.add_theme_font_size_override("font_size", 11)
+	pl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_market.add_child(pl)
+	var fuel_cost := ceili((Data.CARGO_FUEL_CAP - State.ship_fuel) * Data.CARGO_FUEL_PRICE)
+	var parts_cost := ceili((float(Data.PARTS_CAP) - State.parts) * Data.PARTS_PRICE)
+	var buy := HBoxContainer.new()
+	buy.add_theme_constant_override("separation", 6)
+	var fb := _button(buy, ("Refuel supply · %s cr" % Data.fmt(fuel_cost)) if fuel_cost > 0 else "Fuel supply full", func(): if _ship: _ship.refuel_cargo_ship())
+	fb.disabled = fuel_cost <= 0
+	var pb := _button(buy, ("Restock parts · %s cr" % Data.fmt(parts_cost)) if parts_cost > 0 else "Parts store full", func(): if _ship: _ship.buy_parts())
+	pb.disabled = parts_cost <= 0
+	_market.add_child(buy)
+
+
 func _buy(key: String) -> void:
 	var r: Dictionary = State.buy(key)
 	toast(r["msg"], not r["ok"])
 	refresh_panel()
+
+
+# ---- the nav map: every charted zone, and the warp button for the one you pick (the cargo ship makes the jump)
+func _build_map() -> void:
+	_map = PanelContainer.new()
+	_map.anchor_left = 0.5
+	_map.anchor_right = 0.5
+	_map.anchor_top = 0.5
+	_map.anchor_bottom = 0.5
+	_map.offset_left = -330
+	_map.offset_right = 330
+	_map.offset_top = -230
+	_map.offset_bottom = 230
+	_map.add_theme_stylebox_override("panel", _box())
+	_map.visible = false
+	add_child(_map)
+	_map_body = VBoxContainer.new()
+	_map_body.add_theme_constant_override("separation", 10)
+	_map.add_child(_map_body)
+
+
+func toggle_map() -> void:
+	if map_open:
+		close_map()
+	else:
+		open_map()
+
+
+func open_map() -> void:
+	map_open = true
+	_map.visible = true
+	_refresh_map()
+
+
+func close_map() -> void:
+	map_open = false
+	_map.visible = false
+
+
+func _refresh_map() -> void:
+	for c in _map_body.get_children():
+		c.queue_free()
+	var title := Label.new()
+	title.text = "NAV COMPUTER · CHARTED ZONES"
+	title.add_theme_font_size_override("font_size", 20)
+	_map_body.add_child(title)
+	var sub := Label.new()
+	sub.text = "Cargo ship fuel supply %d / %d · the cargo ship makes the jump, so dock with it first. The jump itself is free." % [roundi(State.ship_fuel), roundi(Data.CARGO_FUEL_CAP)]
+	sub.add_theme_color_override("font_color", DIM)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_map_body.add_child(sub)
+	for z in Data.ZONES:
+		var cur: bool = z["id"] == zone["id"]
+		var box := PanelContainer.new()
+		box.add_theme_stylebox_override("panel", _box())
+		var v := VBoxContainer.new()
+		box.add_child(v)
+		var head := HBoxContainer.new()
+		var n := Label.new()
+		n.text = str(z["name"]) + ("   · here" if cur else "   · %s ly" % str(Data.zone_ly(zone, z)))
+		n.add_theme_font_size_override("font_size", 16)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(n)
+		var b := Button.new()
+		var can: bool = not cur and _ship != null and _ship.docked and _ship.warp.is_empty()
+		b.text = "You are here" if cur else ("Warp · %s ly" % str(Data.zone_ly(zone, z)) if can else "Dock with the cargo ship to warp")
+		b.disabled = not can
+		if can:
+			b.pressed.connect(func(): close_map(); _ship.start_warp(z))
+		head.add_child(b)
+		v.add_child(head)
+		var tag := Label.new()
+		tag.text = str(z["tag"])
+		tag.add_theme_color_override("font_color", DIM)
+		tag.add_theme_font_size_override("font_size", 12)
+		tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(tag)
+		var det := Label.new()
+		if z["hub"]:
+			var aboard := floori(State.cargo_total() + State.store_total())
+			det.text = "Market: buys every ore · exotics +%d%%   ·   aboard to sell: %s" % [roundi((Data.EXPORT_BONUS - 1.0) * 100.0), ("%d units" % aboard) if aboard > 0 else "nothing yet"]
+		else:
+			var ex: Array = []
+			for k in Data.ORE_KEYS:
+				if Data.ORES[k].get("zone", "") == z["id"]:
+					ex.append(Data.ORES[k]["name"])
+			det.text = "Market: none · sell at the Hub   ·   exclusive ore: %s   ·   planet %s" % [", ".join(ex), z["planet"]["name"]]
+		det.add_theme_font_size_override("font_size", 12)
+		det.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(det)
+		_map_body.add_child(box)
+	var close := Button.new()
+	close.text = "Close  [N]"
+	close.pressed.connect(close_map)
+	_map_body.add_child(close)
 
 
 func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
@@ -409,7 +602,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
 	var radar := "READY" if ship.radar_cd <= 0.0 else "%.1fs" % ship.radar_cd
 	var to_carrier := ship.true_pos().distance_to(carrier.true_pos) if carrier else 0.0
-	_right.text = "ZONE  Kessler Belt\nCARGO SHIP  %s m\nLASER  %s   RANGE  %s m\nRADAR  %s" % [Data.fm(to_carrier), laser, Data.fm(State.stat("range")["reach"]), radar]
+	_right.text = "ZONE  %s\nCARGO SHIP  %s m\nLASER  %s   RANGE  %s m\nRADAR  %s" % [zone["name"], Data.fm(to_carrier), laser, Data.fm(State.stat("range")["reach"]), radar]
 	_credits.text = "%s cr" % Data.fmt(State.credits)
 	if ship.target >= 0 and belt.alive[ship.target] == 1:
 		var i := ship.target
@@ -422,16 +615,24 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		_target_hp.value = belt.hp[i]
 	else:
 		_target_box.visible = false
-	# the approach plays under letterbox bars; the departure and the pad do not
-	var in_cut: bool = not ship.cut.is_empty() and ship.cut["mode"] == "dock"
+	# cutscenes play under letterbox bars with a caption; the departure and the pad do not
+	var in_cut: bool = ship.in_cinematic()
 	_bar_top.visible = in_cut
 	_bar_bot.visible = in_cut
 	_caption.visible = in_cut
 	if in_cut:
-		_caption.text = "Approach · %s · Cargo ship · Space skips" % CargoShip.bay_name(int(ship.cut["side"]))
+		if not ship.warp.is_empty():
+			var z: Dictionary = ship.warp["z"]
+			_caption.text = "Jump · %s · %s ly · Space skips" % [z["name"], str(Data.zone_ly(zone, z))]
+		elif ship.cut["mode"] == "hold":
+			_caption.text = "Arrival · %s · Space skips" % str(zone.get("colony", "the colony"))
+		else:
+			_caption.text = "Approach · %s · Cargo ship · Space skips" % CargoShip.bay_name(int(ship.cut["side"]))
 		_cross.visible = false
+		_panel.visible = false
 	elif not ship.docked:
 		_cross.visible = ship.cut.is_empty()
+	_fade.color = Color(0, 0, 0, ship.warp_fade())
 	# the cargo ship marker
 	if carrier and not ship.docked and not in_cut:
 		var cam := ship.cam

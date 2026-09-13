@@ -23,7 +23,28 @@ var basis_q := Quaternion.IDENTITY
 var ang := PI / 2.0
 var orbit := Data.DEPOT_ORBIT
 var speed := Data.STATION_SPEED
+var hold := false   # at the Hub the carrier does not orbit: it is flown to its holding point and parked there
 var main   # Main, for world_offset
+
+
+## The carrier heading whose nose (+X) points along a world direction, deck level.
+static func heading_along(d: Vector3) -> Quaternion:
+	var f := Vector3(d.x, 0.0, d.z)
+	if f.length_squared() < 1e-6:
+		f = Vector3.FORWARD
+	return Basis.looking_at(f.normalized(), Vector3.UP).get_rotation_quaternion() * Quaternion(Vector3.UP, PI / 2.0)
+
+
+func nose() -> Vector3:
+	return basis_q * Vector3.RIGHT
+
+
+## Put the carrier somewhere by hand (the Hub arrival flies it along a path; holding station parks it).
+func set_pose(p_true: Vector3, q: Quaternion) -> void:
+	true_pos = p_true
+	basis_q = q
+	position = true_pos - main.world_offset
+	transform.basis = Basis(basis_q)
 
 
 ## A bay by its side (+1 or -1): where its pad and mouth are, in the carrier's frame.
@@ -62,6 +83,10 @@ func dir(local: Vector3) -> Vector3:
 
 ## Advance the orbit and refresh the node. Returns how far the carrier moved this frame (a docked ship rides along).
 func tick(dt: float) -> Vector3:
+	if hold:
+		vel = Vector3.ZERO
+		place()
+		return Vector3.ZERO
 	var prev := true_pos
 	ang -= (speed / orbit) * dt
 	place()
@@ -70,8 +95,9 @@ func tick(dt: float) -> Vector3:
 
 
 func place() -> void:
-	true_pos = Vector3(cos(ang) * orbit, 0.0, sin(ang) * orbit)
-	basis_q = Quaternion(Vector3.UP, PI / 2.0 - ang)   # nose (+X) along the direction of travel
+	if not hold:
+		true_pos = Vector3(cos(ang) * orbit, 0.0, sin(ang) * orbit)
+		basis_q = Quaternion(Vector3.UP, PI / 2.0 - ang)   # nose (+X) along the direction of travel
 	position = true_pos - main.world_offset
 	transform.basis = Basis(basis_q)
 

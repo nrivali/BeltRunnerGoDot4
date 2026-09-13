@@ -1,15 +1,18 @@
 class_name Ship
 extends Node3D
-## The pilot's ship: the browser game's flight model, mining laser, chase camera, and the docking with the cargo ship
-## (approach control, the hangar, the departure taxi). Forward is -Z (Godot's convention; the HTML used +Z). Positions
-## are scene-local; `main.world_offset` turns them into true world coordinates for the belt queries, gravity and the
-## carrier's frame.
+## The pilot's ship: the browser game's flight model, mining laser, chase camera, the docking with the cargo ship
+## (approach control, the hangar, the departure taxi), holding station off the colony at the Hub, and the warp between
+## zones. Forward is -Z (Godot's convention; the HTML used +Z). Positions are scene-local; `main.world_offset` turns them
+## into true world coordinates for the belt queries, gravity and the carrier's frame.
 
 signal toast(msg: String, bad: bool)
 signal docked_changed(is_docked: bool)
+signal map_requested
 
 const TURN := 30.0 * PI / 180.0   # yaw and pitch: 30 degrees a second at full deflection
 const REPAIR_RATE := 6.0
+const WARP_DUR := 8.6
+const WARP_LOAD_AT := 4.3   # the screen is black from 4.2 s to 5.4 s; the zone swaps underneath
 
 var vel := Vector3.ZERO
 var throttle := 0.0
@@ -26,16 +29,18 @@ var mouse_steer := true   # off in the smoke test, where no one is holding the m
 
 # docking
 var docked := false
+var hold := false          # docked at the Hub's holding station rather than on a hangar pad
 var dock_side := 0
 var dep_wait := false      # W has to be released once after docking before it departs (you usually fly in holding it)
 var exit_pending := false  # just left the hangar: the mouth cannot capture the ship until it is clear of the corridor
 var flown_out := false
-var cut := {}              # the approach or departure taxi: mode, side, pts (carrier-local), t, dur, phase, pt, hover, park
+var cut := {}              # the approach, departure or Hub arrival: mode, pts, t, dur, and per-mode fields
+var warp := {}             # the jump between zones: z, t, loaded, skip
 var hangar_t := 0.0
 var _fuel_dry_warned := false
 var _parts_warned := false
 
-var main                  # Main (world_offset, spawn_pickup); untyped so its script members resolve
+var main                  # Main (world_offset, spawn_pickup, load_zone); untyped so its script members resolve
 var belt: Belt
 var carrier: CargoShip
 var cam: Camera3D
@@ -147,6 +152,15 @@ static func level_heading(d: Vector3) -> Quaternion:
 	return Basis.looking_at(f.normalized(), Vector3.UP).get_rotation_quaternion()
 
 
+static func hold_fwd() -> Vector3:
+	var d: Vector3 = Data.HOLD_DIR
+	return Vector3(d.x, 0.0, d.z).normalized()
+
+
+static func hold_side() -> Vector3:
+	return hold_fwd().cross(Vector3.UP)
+
+
 static func _shape(v: float) -> float:
 	var m := absf(v)
 	var dz := 0.06
@@ -156,14 +170,19 @@ static func _shape(v: float) -> float:
 	return signf(v) * t * (0.4 + 0.6 * t)
 
 
+func in_cinematic() -> bool:
+	return not warp.is_empty() or (not cut.is_empty() and cut["mode"] != "depart")
+
+
 func tick(dt: float) -> void:
+	if not warp.is_empty():
+		if Input.is_action_just_pressed("skip"):
+			warp["skip"] = true
+		_warp_update(dt)
+		return
 	if not cut.is_empty():
 		if Input.is_action_just_pressed("skip"):
-			cut["t"] = cut["dur"]
-			if cut["mode"] == "dock":
-				cut["phase"] = "settle"
-				cut["pt"] = 99.0
-			toast.emit("Skipped", false)
+			skip_cut()
 		_cut_update(dt)
 		return
 	if docked:
@@ -181,6 +200,16 @@ func tick(dt: float) -> void:
 		_toggle_overcharge()
 	if Input.is_action_just_pressed("dock"):
 		start_approach()
+
+
+func skip_cut() -> void:
+	if cut.is_empty():
+		return
+	cut["t"] = cut["dur"]
+	if cut["mode"] == "dock":
+		cut["phase"] = "settle"
+		cut["pt"] = 99.0
+	toast.emit("Skipped", false)
 
 
 func _fly(dt: float) -> void:
@@ -236,7 +265,7 @@ func _fly(dt: float) -> void:
 	# the planet's pull: inverse-square from the surface value, always toward the origin (true coordinates)
 	var tp := true_pos()
 	var d := tp.length()
-	if d > 1.0:
+	if d > 1.0 and belt.planet_r > 0.0:
 		var g: float = Data.GRAVITY_SURFACE * min(1.0, (belt.planet_r / d) * (belt.planet_r / d))
 		vel -= tp / d * g * dt
 	# drag, then the speed cap (thrust never pushes past it; anything above only falls away on drag)
@@ -253,14 +282,14 @@ func _fly(dt: float) -> void:
 	if d > belt.world_r:
 		vel = vel.bounce(tp / d)
 		position -= tp / d * (d - belt.world_r)
-	elif d < belt.planet_r + Data.SHIP_R:
+	elif belt.planet_r > 0.0 and d < belt.planet_r + Data.SHIP_R:
 		vel = Vector3.ZERO
 		position += tp / d * (belt.planet_r + Data.SHIP_R - d)
 
 
 # ---- the cargo ship: hangar capture and hull collision (ported from the capture rule and depotCollide)
 func _carrier_contact() -> void:
-	if carrier == null:
+	if carrier == null or carrier.hold:
 		return
 	var L := carrier.to_local_true(true_pos())
 	var rel := vel - carrier.vel
@@ -284,7 +313,7 @@ func _carrier_contact() -> void:
 ## E near the carrier: approach control flies the ship in by the nearest mouth, along the deck, to a hover over the far
 ## pad already facing that pad's own mouth, then lets it down. Registered against the far bay.
 func start_approach() -> void:
-	if docked or not cut.is_empty() or carrier == null:
+	if docked or not cut.is_empty() or carrier == null or carrier.hold:
 		return
 	if true_pos().distance_to(carrier.true_pos) >= Data.DOCK_RANGE:
 		toast.emit("Too far from the cargo ship for an approach · close to %s m" % Data.fm(Data.DOCK_RANGE), true)
@@ -312,9 +341,14 @@ func start_approach() -> void:
 
 
 ## W on the pad or the Depart button: approach control taxis the ship off the pad and straight out of its own mouth, then
-## hands it over already under way. Watched from the chase camera, no cutscene.
+## hands it over already under way. Watched from the chase camera, no cutscene. At the Hub there is no flying: leaving
+## means setting a course on the nav map.
 func start_departure() -> void:
 	if not docked or not cut.is_empty():
+		return
+	if hold:
+		toast.emit("Set a course on the nav map to leave Meridian Colony", false)
+		map_requested.emit()
 		return
 	var b := dock_side
 	leave_hangar()
@@ -323,15 +357,48 @@ func start_departure() -> void:
 	toast.emit("Departing · approach control has the ship · Space skips", false)
 
 
+## Every arrival at the Hub: the cargo ship comes in from deep space behind its holding point, sweeps wide past the outer
+## ring and eases onto station nose toward the hub. The path is in true world coordinates; the ship rides inside.
+func start_hold_approach() -> void:
+	if docked or not cut.is_empty():
+		return
+	var p: Vector3 = Data.HOLD_PARK
+	var f := hold_fwd()
+	var r := hold_side()
+	var pts: Array = [carrier.true_pos, p - f * 95000.0 + r * 32000.0 + Vector3(0, 11000, 0), p - f * 34000.0 + r * 4000.0 + Vector3(0, 1500, 0), p]
+	if carrier.true_pos.distance_to(pts[1]) < 20000.0:
+		pts.remove_at(1)
+	var len := _curve_length(pts)
+	cut = {"mode": "hold", "pts": pts, "t": 0.0, "dur": clampf(len / 6500.0, 14.0, 28.0)}
+	throttle = 0.0
+	toast.emit("Arriving · Meridian Colony · Space skips", false)
+
+
 func _cut_update(dt: float) -> void:
 	var C := cut
 	C["t"] = float(C["t"]) + dt
 	var k: float = min(1.0, float(C["t"]) / float(C["dur"]))
-	var u: float = (k * k * (2.0 - k) * 0.5 + k * 0.5 * k) if C["mode"] == "depart" else k * k * (3.0 - 2.0 * k)
+	var mode: String = C["mode"]
+	var u: float = (k * k * (2.0 - k) * 0.5 + k * 0.5 * k) if mode == "depart" else k * k * (3.0 - 2.0 * k)
 	var pts: Array = C["pts"]
 	var p := _curve_point(pts, min(1.0, u))
 	var tan := _curve_tangent(pts, min(u, 0.999))
-	if C["mode"] == "dock":
+	if mode == "hold":
+		# the carrier flies the path; the last stretch blends onto the holding heading
+		var q := CargoShip.heading_along(tan)
+		if k > 0.9:
+			q = q.slerp(CargoShip.heading_along(Data.HOLD_DIR), (k - 0.9) / 0.1)
+		carrier.set_pose(p, carrier.basis_q.slerp(q, 1.0 - exp(-1.8 * dt)))
+		position = carrier.position
+		set_heading(level_heading(carrier.nose()))
+		vel = Vector3.ZERO
+		if k >= 1.0:
+			cut = {}
+			carrier.set_pose(Data.HOLD_PARK, CargoShip.heading_along(Data.HOLD_DIR))
+			position = carrier.position
+			enter_berth()
+		return
+	if mode == "dock":
 		vel = carrier.vel
 		if C["phase"] == "fly":
 			position = carrier.to_true(p) - main.world_offset
@@ -366,6 +433,7 @@ func _cut_update(dt: float) -> void:
 
 func enter_hangar(side: int) -> void:
 	docked = true
+	hold = false
 	dock_side = side
 	throttle = 0.0
 	vel = Vector3.ZERO
@@ -382,10 +450,30 @@ func enter_hangar(side: int) -> void:
 	State.save_game()
 
 
+## Holding station off the colony: the carrier is parked, you are aboard, and the market and services are open.
+func enter_berth() -> void:
+	docked = true
+	hold = true
+	dock_side = 1
+	throttle = 0.0
+	vel = Vector3.ZERO
+	target = -1
+	laser_on = false
+	firing = false
+	_laser.visible = false
+	dep_wait = true
+	hangar_t = 0.0
+	cut = {}
+	toast.emit("Holding station off Meridian Colony · the market is open", false)
+	docked_changed.emit(true)
+	State.save_game()
+
+
 func leave_hangar() -> void:
 	if not docked:
 		return
 	docked = false
+	hold = false
 	exit_pending = true
 	flown_out = true
 	vel = carrier.vel
@@ -395,12 +483,22 @@ func leave_hangar() -> void:
 
 
 func _dock_update(dt: float) -> void:
-	# settle onto the pad and stay there, nose out of the mouth, riding along with the carrier
-	var park: Vector3 = carrier.to_true(CargoShip.park_local(dock_side)) - main.world_offset
-	var k := 1.0 - exp(-1.4 * dt)
-	position = position.lerp(park, k)
-	set_heading(heading().slerp(level_heading(carrier.dir(CargoShip.face_local(dock_side))), k))
-	vel = carrier.vel
+	if hold:
+		# aboard the carrier at its holding point: it drifts gently on station
+		var t := State.time
+		var drift := Vector3(sin(t * 0.21) * 320.0, sin(t * 0.17) * 240.0, cos(t * 0.13) * 320.0)
+		var k := 1.0 - exp(-0.4 * dt)
+		carrier.set_pose(carrier.true_pos.lerp(Data.HOLD_PARK + drift, k), carrier.basis_q)
+		position = carrier.position
+		set_heading(level_heading(carrier.nose()))
+		vel = Vector3.ZERO
+	else:
+		# settle onto the pad and stay there, nose out of the mouth, riding along with the carrier
+		var park: Vector3 = carrier.to_true(CargoShip.park_local(dock_side)) - main.world_offset
+		var k2 := 1.0 - exp(-1.4 * dt)
+		position = position.lerp(park, k2)
+		set_heading(heading().slerp(level_heading(carrier.dir(CargoShip.face_local(dock_side))), k2))
+		vel = carrier.vel
 	# the tank fills from the cargo ship's supply for free; the hull mends from its repair parts, one part per point
 	var tank: float = State.stat("tank")["cap"]
 	if State.fuel < tank:
@@ -425,6 +523,7 @@ func _dock_update(dt: float) -> void:
 	if not Input.is_action_pressed("throttle_up"):
 		dep_wait = false
 	elif not dep_wait:
+		dep_wait = true
 		start_departure()
 	if Input.is_action_just_pressed("dock"):
 		deposit_all()
@@ -449,6 +548,77 @@ func take_all() -> void:
 	toast.emit("Took %d back aboard" % roundi(moved), false)
 	State.save_game()
 	docked_changed.emit(true)
+
+
+# ---- the market, only while holding station at the Hub
+func sell(keys: Array, from_hold: bool, from_store: bool) -> void:
+	var r: Dictionary = State.sell(keys, from_hold, from_store)
+	if r["units"] < 0.5:
+		toast.emit("Nothing to sell", true)
+		return
+	toast.emit("Sold %d · +%s cr" % [roundi(r["units"]), Data.fmt(r["credits"])], false)
+	docked_changed.emit(true)
+
+
+func refuel_cargo_ship() -> void:
+	var r: Dictionary = State.refuel_cargo_ship()
+	if r["units"] < 1.0:
+		toast.emit(r["msg"], true)
+		return
+	_fuel_dry_warned = false
+	toast.emit("Refuelled %d · %s cr%s" % [floori(r["units"]), Data.fmt(r["cost"]), " · out of credits before full" if r["partial"] else ""], false)
+	docked_changed.emit(true)
+
+
+func buy_parts() -> void:
+	var r: Dictionary = State.buy_parts()
+	if r["units"] < 1.0:
+		toast.emit(r["msg"], true)
+		return
+	_parts_warned = false
+	toast.emit("Restocked %d repair parts · %s cr%s" % [roundi(r["units"]), Data.fmt(r["cost"]), " · out of credits before full" if r["partial"] else ""], false)
+	docked_changed.emit(true)
+
+
+# ---- the warp: the cargo ship makes the jump, so you have to be aboard it. A held exterior shot, a fade to black while
+# the zone swaps underneath, then the arrival (the Hub: the holding-station flight; a belt: on the pad in the dock that
+# faces the planet). The HTML's hyperspace tunnel is not ported yet.
+func start_warp(z: Dictionary) -> void:
+	if not warp.is_empty():
+		return
+	if not docked:
+		toast.emit("Dock with the cargo ship before warping · it makes the jump", true)
+		return
+	if z["id"] == main.zone["id"]:
+		return
+	warp = {"z": z, "t": 0.0, "loaded": false, "skip": false, "from_hold": hold}
+	docked_changed.emit(false)
+	toast.emit("Jump · %s · %s ly · Space skips" % [z["name"], str(Data.zone_ly(main.zone, z))], false)
+
+
+## 0 = clear, 1 = black: the HUD's fade for the jump.
+func warp_fade() -> float:
+	if warp.is_empty():
+		return 0.0
+	var t: float = warp["t"]
+	if warp["loaded"]:
+		return 1.0 - smoothstep(WARP_LOAD_AT + 1.1, WARP_LOAD_AT + 2.3, t) if not warp["skip"] else 0.0
+	return smoothstep(WARP_LOAD_AT - 1.2, WARP_LOAD_AT, t)
+
+
+func _warp_update(dt: float) -> void:
+	var W := warp
+	W["t"] = float(W["t"]) + dt
+	var z: Dictionary = W["z"]
+	if not W["loaded"] and (W["skip"] or float(W["t"]) >= WARP_LOAD_AT):
+		W["loaded"] = true
+		docked = false
+		hold = false
+		cut = {}
+		main.warp_load(z)   # swaps the zone and places the carrier and ship for the arrival
+	if W["loaded"] and (W["skip"] or float(W["t"]) >= WARP_DUR):
+		warp = {}
+		main.warp_done(z)
 
 
 # ---- a uniform Catmull-Rom spline through the taxi waypoints (the HTML used three.js's centripetal variant)
@@ -564,21 +734,33 @@ func _toggle_overcharge() -> void:
 
 
 # ---- cameras
-## The chase camera in flight and during the departure taxi; a camera by the entry mouth during the approach; and on the
-## pad a slow walk round the ship inside the bay (the HTML's hangar view).
+## The chase camera in flight and during the departure taxi; a camera by the entry mouth during the approach; on the pad
+## a slow walk round the ship inside the bay; behind the carrier on the Hub arrival and at its holding point; an exterior
+## shot of the carrier during a jump.
 func update_camera(dt: float) -> void:
 	var s := Data.SHIP_SCALE
-	if not cut.is_empty() and cut["mode"] == "dock":
-		var entry: int = cut["entry"]
-		if cut["phase"] == "fly":
-			var cp: Vector3 = carrier.to_true(Vector3(760.0, 320.0, entry * 1750.0)) - main.world_offset
-			cam.global_position = cp
-			cam.look_at(position + forward() * 60.0, Vector3.UP)
-			return
-		_hangar_camera(dt)
+	if not warp.is_empty():
+		_carrier_shot(Vector3(-12000.0, 3200.0, 6900.0), Vector3(2400.0, 0.0, 0.0))
 		return
+	if not cut.is_empty():
+		var mode: String = cut["mode"]
+		if mode == "hold":
+			_carrier_shot(Vector3(-12500.0, 3600.0, 7200.0), Vector3(600.0, 0.0, 0.0))
+			return
+		if mode == "dock":
+			var entry: int = cut["entry"]
+			if cut["phase"] == "fly":
+				var cp: Vector3 = carrier.to_true(Vector3(760.0, 320.0, entry * 1750.0)) - main.world_offset
+				cam.global_position = cp
+				cam.look_at(position + forward() * 60.0, Vector3.UP)
+				return
+			_hangar_camera(dt)
+			return
 	if docked:
-		_hangar_camera(dt)
+		if hold:
+			_holding_camera(dt)
+		else:
+			_hangar_camera(dt)
 		return
 	var q := heading()
 	_cam_q = _cam_q.slerp(q, 1.0 - exp(-7.0 * dt)).normalized()
@@ -591,6 +773,16 @@ func update_camera(dt: float) -> void:
 	cam.look_at(look, u)
 
 
+## A camera fixed in the carrier's frame (offsets along nose, up, side), looking at a point ahead of it.
+func _carrier_shot(offset: Vector3, look_ahead: Vector3) -> void:
+	var nose := carrier.nose()
+	var up := carrier.basis_q * Vector3.UP
+	var side := carrier.basis_q * Vector3.BACK
+	var cp: Vector3 = carrier.position + nose * offset.x + up * offset.y + side * offset.z
+	cam.global_position = cp
+	cam.look_at(carrier.position + nose * look_ahead.x + up * look_ahead.y + side * look_ahead.z, Vector3.UP)
+
+
 func _hangar_camera(dt: float) -> void:
 	hangar_t += dt
 	var a := hangar_t * 0.16
@@ -599,6 +791,17 @@ func _hangar_camera(dt: float) -> void:
 	var cam_l := Vector3(190.0 * cos(a), park.y + 56.0 + 28.0 * sin(a * 0.7), park.z + 250.0 * sin(a))
 	cam.global_position = carrier.to_true(cam_l) - main.world_offset
 	cam.look_at(position + carrier.dir(Vector3(0.0, 6.0, 0.0)), carrier.dir(Vector3.UP))
+	_cam_q = heading()
+
+
+## Holding station: a slow swing round the carrier with the colony beyond it (the HTML's holding shot).
+func _holding_camera(dt: float) -> void:
+	hangar_t += dt
+	var f := hold_fwd()
+	var r := hold_side()
+	var c: Vector3 = carrier.position
+	cam.global_position = c - f * 15500.0 + r * (7000.0 + sin(hangar_t * 0.04) * 3500.0) + Vector3(0, 7000, 0)
+	cam.look_at(c + f * 22000.0 + Vector3(0, -11000, 0), Vector3.UP)
 	_cam_q = heading()
 
 

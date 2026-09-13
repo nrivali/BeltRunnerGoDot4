@@ -8,9 +8,28 @@ touched by the port. Open it with Godot 4.3 or newer (Project Manager → Import
 
 Runs on Godot 4.7.2. `godot --path . -- --smoke` is the unattended check through the whole loop: it starts docked,
 launches, parks the ship at the nearest copper rock and cuts it through, flies back and asks approach control for a
-docking, deposits the hold into the cargo ship's storage, departs again and quits, printing what happened at each stage
-and saving screenshots (`smoke_launch`, `smoke_taxi`, `smoke_mine`, `smoke_approach`, `smoke_dock`, `smoke_pad`) under
-`user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change to the belt, ship, carrier or HUD.
+docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on station, sells everything, refuels and
+restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
+(`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
+
+## Milestone 3 — the Hub and selling
+
+| Piece | Where | Status |
+|---|---|---|
+| Two charted zones (Kessler Belt, The Hub), zone data, chart distances | `scripts/data.gd` | ported |
+| Zone loading: belt rebuilt from its seed, planet, colony, sun and sky per zone | `scripts/main.gd` | new |
+| Meridian Colony: two habitat rings with modules, spokes, hub sphere, core, pads, dish, solar wings, cargo terminals, beacons | `scripts/colony.gd` | simplified port of buildColonyAt (plain meshes, no merged detail) |
+| The homeworld hanging below the colony lanes | `scripts/main.gd` | a blue sphere for now |
+| Holding station: the carrier parked off the colony, drifting gently, the ship aboard | `scripts/ship.gd`, `scripts/cargo_ship.gd` | ported |
+| The arrival: the carrier flies in from deep space and eases onto station, camera riding behind it | `scripts/ship.gd` | ported (chase shot instead of the HTML's orbiting camera) |
+| The jump: exterior shot, fade to black while the zone swaps, arrival; Space skips | `scripts/ship.gd` | new (the HTML's hyperspace tunnel is not ported) |
+| The nav map (N): both zones with distance, tag, market or exclusive ores, and the Warp button | `scripts/hud.gd` | rebuilt as a panel (no chart drawing yet) |
+| The market: drifting prices, exotics premium, sell everything / hold / storage, today's prices | `scripts/game_state.gd`, `scripts/hud.gd` | ported |
+| Refuel the cargo ship's supply and restock its repair parts for credits | `scripts/game_state.gd` | ported |
+| Zone remembered in the save | `scripts/game_state.gd` | ported |
+
+Not in this milestone: the colony's traffic (72 ships), the Hub's voice lines, the hyperspace tunnel, the drawn chart,
+and the homeworld's continents, clouds and night lights.
 
 ## Milestone 2 — the cargo ship and docking
 
@@ -44,8 +63,8 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: the Hub and colony, traffic, drones, warp, the tutorial and voice lines, audio, rock shapes and textures
-(rocks are faceted spheres for now), rocks drifting on their orbit rails, raiders, the nav map, the inventory grid.
+Not yet: traffic, drones and the dish turret, the tutorial and voice lines, audio, rock shapes and textures (rocks are
+faceted spheres for now), rocks drifting on their orbit rails, raiders, the tow, the inventory grid, the Blender models.
 The game logic for those exists in the HTML and ports the same way.
 
 ## Conventions

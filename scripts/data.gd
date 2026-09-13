@@ -68,6 +68,8 @@ const UPGRADES := {
 static func burn_mult(m: float) -> float:
 	return 0.8 * m * m if m > 1.0 else 1.0
 
+## The Hub's belts are empty; anything with a `zone` is an export and carries the premium at the only market.
+
 ## Belt radii are in base units measured outward from the planet's surface; Belt.build multiplies them by WORLD_SCALE.
 const BASE_BELTS := [
 	{"name": "Inner belt", "rMin": 600.0,  "rMax": 3600.0,  "count": 1000, "size": [18, 62], "amount": [35, 110],  "spread": 650.0},
@@ -79,15 +81,53 @@ const RING_BELT := {"name": "Ring belt", "rMin": 900000.0, "rMax": 950000.0, "co
 	"ores": {"iron": 0.48, "copper": 0.3, "gold": 0.12, "platinum": 0.06, "crystal": 0.04}}
 
 const ZONE_KESSLER := {
-	"id": "kessler", "name": "Kessler Belt", "density": 5.0, "amountMult": 1.0,
+	"id": "kessler", "name": "Kessler Belt", "hub": false, "map": Vector2(46, 34), "danger": 0.5,
+	"tag": "The home belt. Picked over, safe, and never far from a refuel.",
+	"density": 5.0, "amountMult": 1.0,
 	"belts": [
 		{"iron": 0.55, "copper": 0.25, "cobalt": 0.2},
 		{"copper": 0.3, "gold": 0.4, "platinum": 0.1, "cobalt": 0.1, "beryl": 0.1},
 		{"gold": 0.15, "platinum": 0.4, "crystal": 0.25, "beryl": 0.2},
 	],
-	"planet": {"name": "Ferron", "r": 900.0, "tint": Color("#7E5F4B")},
-	"sunDir": Vector3(0.55, 0.42, -0.72),
+	"planet": {"name": "Ferron", "r": 900.0, "tint": Color("#7E5F4B"), "central": true},
+	"sunDir": Vector3(0.55, 0.42, -0.72), "bg": Color("#070912"),
 }
+## The Hub: Meridian Colony at the origin, no belts and no central gravity; the homeworld hangs below the colony lanes.
+const ZONE_HUB := {
+	"id": "hub", "name": "The Hub", "hub": true, "colony": "Meridian Colony", "map": Vector2(50, 57), "danger": 0.0,
+	"tag": "Meridian Colony above a blue ocean world. Green continents, white clouds, and familiar lights on the night side: a home to return to, with safe lanes and the sector's ore market.",
+	"density": 0.0, "amountMult": 1.0,
+	"belts": [{}, {}, {}],
+	"planet": {"name": "Meridian", "r": 1280.0, "tint": Color("#3C86B5"), "central": false, "position": Vector3(150000.0, -430000.0, -360000.0)},
+	"sunDir": Vector3(-0.85, 0.45, 0.10), "bg": Color("#080a14"),
+}
+const ZONES := [ZONE_HUB, ZONE_KESSLER]
+
+## The colony market: fuel and repair parts for the cargo ship, and how prices drift.
+const CARGO_FUEL_PRICE := 0.6
+const PARTS_PRICE := 2.0
+const MARKET_PERIOD := 90.0
+
+## Where the cargo ship holds station off Meridian Colony (true world coordinates) and the heading it holds, nose toward the hub.
+const HOLD_PARK := Vector3(-40000.0, 14000.0, 56000.0)
+const HOLD_DIR := Vector3(40000.0, -9000.0, -56000.0)
+
+## Meridian Colony's proportions (the HTML's COLONY constants).
+const COLONY := {"R": 52000.0, "ringW": 3000.0, "ringH": 2600.0, "R2": 30000.0, "ring2W": 1800.0, "ring2H": 1800.0, "hub": 7000.0, "coreR": 2600.0, "coreH": 24000.0, "padY": 15000.0, "padR": 5200.0, "berthY": 12000.0, "termX": 4200.0, "termY": 1500.0, "termZ": 3200.0, "berthZ": 6230.0}
+
+
+static func zone_by_id(id: String) -> Dictionary:
+	for z in ZONES:
+		if z["id"] == id:
+			return z
+	return ZONE_KESSLER
+
+
+## Light-years between two zones, from their chart positions.
+static func zone_ly(a: Dictionary, b: Dictionary) -> float:
+	var pa: Vector2 = a["map"]
+	var pb: Vector2 = b["map"]
+	return roundf(pa.distance_to(pb) * 0.12 * 10.0) / 10.0
 
 
 static func fmt(n: float) -> String:
