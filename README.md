@@ -12,6 +12,20 @@ docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on s
 restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
 (`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 8 — lighting
+
+| Piece | Where | Status |
+|---|---|---|
+| The sun per zone (colour, strength, disc size, exposure), ACES tone mapping at the browser's exposure, glow for the emissives and the sun | `scripts/lighting.gd` | ported from Astra's `space-lighting.js` profiles |
+| Sky: nebula, dust band, stars and a sun disc with an optical glare, all in one sky shader; the sky lights the hulls' reflections, with a gentler disc in the reflection map so the metal ore veins do not mirror it as white blobs | `scripts/lighting.gd` | rebuilt (the browser paints a texture; here it is a shader, so it costs nothing to build) |
+| Soft directional shadows focused round the ship, faint fill matching the browser's hemisphere bounce and ambient | `scripts/lighting.gd` | ported |
+| The flashlight: the browser's torch under the nose, on by default, F toggles it in flight | `scripts/ship.gd` | ported (SpotLight 14000 cd / π, reach 7000, half-angle 22.5°, 1/d falloff) |
+| The warm hangar lamps at the browser's strength (2600 cd / π, 1/d^1.25) | `scripts/cargo_ship.gd` | fixed: they were there at a thousandth of the strength |
+
+Light energies follow one rule: Godot's Lambert has no 1/π and its omni/spot attenuation exponent is the same falloff
+as three.js's `decay`, so a browser light of intensity I becomes energy I / π with the same decay, colour and range.
+`tools/inspect_mats.gd` (run with `--script`) prints every model material's albedo, metallic, roughness and maps.
+
 ## Milestone 7 — the dish turret and the collector drones
 
 | Piece | Where | Status |
@@ -64,7 +78,7 @@ folder; Godot imports GLB natively, so no conversion). Each has a placeholder fa
 | Garden habitat colony | `assets/colony/garden_habitat.glb` | Meridian Colony at ×1000; its Habitat_Rings turn |
 
 Not yet: LOD 0 up close, the ship's wing and fitting variants and paint accent, the carrier's dish turret animation and
-hull-profile collision (the box collision stays), Astra's lighting module, and the hyperspace effect.
+hull-profile collision (the box collision stays), and the hyperspace effect (lighting came in milestone 8).
 
 ## Milestone 3 — the Hub and selling
 
@@ -132,6 +146,6 @@ browser's ambience beats were removed from the game by the user, so there are no
 ## Controls (same as the browser)
 
 Mouse steers (cursor off centre yaws and pitches) · W / S throttle · X cut · A / D roll · Shift afterburner (needs the
-refit) · LMB / Space / L mining laser · G laser overcharge (needs the refit) · R radar pulse · E within 2,250 m of the
+refit) · LMB / Space / L mining laser · G laser overcharge (needs the refit) · R radar pulse · F flashlight · E within 2,250 m of the
 cargo ship: approach control docks you (or fly slowly into either hangar mouth) · on the pad: E deposits the hold, W
 departs · Space skips an approach · F5 quick-save · Esc quit.

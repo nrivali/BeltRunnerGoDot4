@@ -48,6 +48,8 @@ var cam: Camera3D
 var _cam_q := Quaternion.IDENTITY
 var _laser: MeshInstance3D
 var _hull_mesh: MeshInstance3D
+var torch: SpotLight3D
+var torch_on := true      # F in flight; not saved, as in the browser
 
 
 func _ready() -> void:
@@ -77,6 +79,21 @@ func _ready() -> void:
 	_laser.material_override = lm
 	_laser.visible = false
 	add_child(_laser)
+	# the flashlight: the HTML's torch (SpotLight 0xfff1d6, 14000 cd, reach 7000, half-angle pi/8, decay 1), on by default,
+	# just below the nose and aimed a touch down. Godot's spot attenuation of 1 is the same 1/d falloff, and its
+	# diffuse has no 1/pi, so the energy is the browser's intensity over pi.
+	torch = SpotLight3D.new()
+	torch.name = "Torch"
+	torch.light_color = Color("#fff1d6")
+	torch.light_energy = 14000.0 / PI
+	torch.spot_range = 7000.0
+	torch.spot_attenuation = 1.0
+	torch.spot_angle = 22.5
+	torch.spot_angle_attenuation = 0.7
+	torch.shadow_enabled = false
+	torch.position = Vector3(0.0, -1.5, -21.0) * Data.SHIP_SCALE
+	torch.look_at_from_position(torch.position, Vector3(0.0, -4.5, -2000.0), Vector3.UP)
+	add_child(torch)
 
 
 const MODEL := "res://assets/ship/player_ship.glb"
@@ -202,7 +219,13 @@ func in_cinematic() -> bool:
 	return not warp.is_empty() or (not cut.is_empty() and cut["mode"] != "depart")
 
 
+func toggle_torch() -> void:
+	torch_on = not torch_on
+	toast.emit("Flashlight on" if torch_on else "Flashlight off", false)
+
+
 func tick(dt: float) -> void:
+	torch.visible = torch_on and not docked and warp.is_empty() and visible
 	if not warp.is_empty():
 		if Input.is_action_just_pressed("skip"):
 			warp["skip"] = true
@@ -226,6 +249,8 @@ func tick(dt: float) -> void:
 		_radar()
 	if Input.is_action_just_pressed("overcharge"):
 		_toggle_overcharge()
+	if Input.is_action_just_pressed("torch"):
+		toggle_torch()
 	if Input.is_action_just_pressed("dock"):
 		start_approach()
 

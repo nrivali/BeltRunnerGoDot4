@@ -841,7 +841,7 @@ func _build_controls() -> void:
 	_head(v, "FLIGHT CONTROLS")
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", 12)
-	l.text = "Mouse  yaw · pitch\nW S  throttle up · down   X  cut\nA D  roll   Shift  afterburner\nLMB / Space / L  mining laser\nG  laser overcharge   R  radar pulse\nE  dock (near the cargo ship) · deposit (on the pad)\nN  nav map   Tab / I  inventory   C  hide this"
+	l.text = "Mouse  yaw · pitch\nW S  throttle up · down   X  cut\nA D  roll   Shift  afterburner\nLMB / Space / L  mining laser\nG  laser overcharge   R  radar pulse   F  flashlight\nE  dock (near the cargo ship) · deposit (on the pad)\nN  nav map   Tab / I  inventory   C  hide this"
 	v.add_child(l)
 
 

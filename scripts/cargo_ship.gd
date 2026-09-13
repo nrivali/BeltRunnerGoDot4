@@ -100,9 +100,11 @@ func _load_model() -> bool:
 		if a is Node3D:
 			anchors[n] = (a as Node3D).position
 	for z in [-525.0, 525.0]:
+		# the HTML's warm hangar lamps: PointLight 0xffc98c, 2600 cd, reach 1150, decay 1.25. Godot's attenuation of 1.25
+		# is the same 1/d^1.25 falloff and its diffuse has no 1/pi, so the energy is the browser's intensity over pi.
 		var inner := OmniLight3D.new()
 		inner.light_color = Color("#ffc98c")
-		inner.light_energy = 2.5
+		inner.light_energy = 2600.0 / PI
 		inner.omni_range = 1150.0
 		inner.omni_attenuation = 1.25
 		inner.position = Vector3(0, 130, z)
@@ -460,8 +462,9 @@ func _build_hull() -> void:
 				add_child(l)
 		var inner := OmniLight3D.new()
 		inner.light_color = Color("#dce8ff")
-		inner.light_energy = 2.5
-		inner.omni_range = 1400.0
+		inner.light_energy = 60.0 / PI
+		inner.omni_attenuation = 1.3
+		inner.omni_range = 2000.0
 		inner.position = Vector3(0, 60, side * 450)
 		add_child(inner)
 	# the deck floor and ceiling inside the hangar, so the pad reads as a room

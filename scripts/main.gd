@@ -22,6 +22,7 @@ var tutorial: Tutorial
 var _dish_toast_t := -100.0
 var sun: DirectionalLight3D
 var env: Environment
+var lighting: Lighting
 var _cull_t := 0.0
 var _save_t := 0.0
 
@@ -94,6 +95,7 @@ func _setup_inputs() -> void:
 	_key("inventory", KEY_TAB)
 	_key("inventory", KEY_I)
 	_key("controls", KEY_C)
+	_key("torch", KEY_F)
 	_key("tut_next", KEY_ENTER)
 	_key("quicksave", KEY_F5)
 	_key("quit", KEY_ESCAPE)
@@ -116,20 +118,12 @@ func _mouse(action: String, button: MouseButton) -> void:
 
 
 func _setup_environment() -> void:
-	env = Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.027, 0.035, 0.07)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.23, 0.29, 0.54)
-	env.ambient_light_energy = 0.35
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	var we := WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
-	sun = DirectionalLight3D.new()
-	sun.light_color = Color("#fff1dc")
-	sun.light_energy = 2.2
-	add_child(sun)
+	lighting = Lighting.new()
+	lighting.name = "Lighting"
+	add_child(lighting)
+	lighting.setup(self)
+	env = lighting.env
+	sun = lighting.sun
 
 
 # ---- zones
@@ -177,9 +171,7 @@ func load_zone(z: Dictionary) -> void:
 		colony = Colony.new()
 		colony.name = "Colony"
 		add_child(colony)
-	var dir: Vector3 = z["sunDir"]
-	sun.look_at_from_position(Vector3.ZERO, -dir.normalized(), Vector3.UP)
-	env.background_color = z["bg"]
+	lighting.set_zone(z)
 
 
 ## Place the carrier and the ship for the zone: on the pad in the dock that faces the planet in a belt; at the Hub, at the
