@@ -64,6 +64,27 @@ const UPGRADES := {
 	"overcharge": {"name": "Laser overcharge", "levels": [{"mult": 1.0}, {"mult": 1.5}, {"mult": 2.0}, {"mult": 2.5}, {"mult": 3.0}], "costs": [600, 2200, 7000, 18000]},
 }
 
+## Cargo ship upgrades, bought at the services panel; they work whether or not you are docked. Level 0 = not installed.
+## The dish on the mast breaks rocks near the carrier and leaves their ore adrift; collector drones fly out from the
+## hangar, gather loose ore and stow it in the cargo ship's storage.
+const DEPOT_UPGRADES := {
+	"laser":      {"name": "Cargo ship mining laser", "levels": [null, {"range": 12000.0, "rate": 2.0}, {"range": 20000.0, "rate": 4.0}, {"range": 32000.0, "rate": 7.0}], "costs": [5000, 14000, 40000]},
+	"collectors": {"name": "Collector drones",        "levels": [null, {"ships": 1, "cap": 120.0, "speed": 260.0, "range": 20000.0}, {"ships": 2, "cap": 180.0, "speed": 300.0, "range": 35000.0}, {"ships": 3, "cap": 260.0, "speed": 340.0, "range": 60000.0}], "costs": [8000, 20000, 45000]},
+}
+const TURRET_PITCH_MIN := -0.5
+const TURRET_PITCH_MAX := 1.45
+const TURRET_SLEW := 0.45   # rad/s; yaw is unlimited
+
+
+static func describe_depot(key: String, i: int) -> String:
+	var L = DEPOT_UPGRADES[key]["levels"][i]
+	if L == null:
+		return "not installed"
+	if key == "laser":
+		return "%s m reach · %s dmg/s" % [fm(L["range"]), str(L["rate"])]
+	return "%d drone%s · %d hold · %s m range" % [L["ships"], "s" if L["ships"] > 1 else "", roundi(L["cap"]), fm(L["range"])]
+
+
 ## Fuel burn multiplier for an afterburner setting (0.8 x mult squared: x3.2 at x2, x20 at x5)
 static func burn_mult(m: float) -> float:
 	return 0.8 * m * m if m > 1.0 else 1.0

@@ -733,21 +733,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 
 
 func _break(i: int) -> void:
-	var rname := belt.rock_name(i)
-	var ore_i := belt.ore[i]
-	var at: Vector3 = belt.pos[i] - main.world_offset
-	var r := belt.radius[i]
-	var loose := belt.kill(i)
-	Audio.sfx("rock_break", 0.0 if belt.cls[i] > 0 else -4.0)
-	if ore_i >= 0 and loose > 0.0:
-		var k: int = clampi(roundi(loose / 40.0), 1, 8)
-		var ore_key: String = Data.ORE_KEYS[ore_i]
-		for n in k:
-			var dir := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
-			main.spawn_pickup(ore_key, loose / k, at + dir * r * randf_range(0.1, 0.5), dir * randf_range(20.0, 60.0))
-		toast.emit("%s broken · %d %s loose" % [rname, roundi(loose), Data.ORES[ore_key]["name"]], false)
-	else:
-		toast.emit("%s broken · scrap only" % rname, false)
+	main.break_rock(i, false)
 
 
 func _radar() -> void:

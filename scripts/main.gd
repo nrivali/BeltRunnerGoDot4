@@ -17,7 +17,9 @@ var planet: MeshInstance3D
 var planet_true := Vector3.ZERO
 var colony: Colony
 var pickups: Node3D
+var drones: Drones
 var tutorial: Tutorial
+var _dish_toast_t := -100.0
 var sun: DirectionalLight3D
 var env: Environment
 var _cull_t := 0.0
@@ -48,6 +50,11 @@ func _ready() -> void:
 	ship.belt = belt
 	ship.carrier = carrier
 	add_child(ship)
+	drones = Drones.new()
+	drones.name = "Drones"
+	drones.main = self
+	drones.carrier = carrier
+	add_child(drones)
 	hud = Hud.new()
 	add_child(hud)
 	hud.bind(ship)
@@ -134,6 +141,10 @@ func load_zone(z: Dictionary) -> void:
 	hud.zone = z
 	for p in pickups.get_children():
 		p.queue_free()
+	if drones:
+		drones.reset()
+	carrier.dish["rock"] = -1
+	carrier.dish["firing"] = false
 	belt.clear()
 	belt.build(z, SEED if z["id"] == "kessler" else SEED + 11)
 	var pd: Dictionary = z["planet"]
@@ -234,6 +245,34 @@ func spawn_pickup(ore: String, units: float, at: Vector3, drift: Vector3) -> voi
 	pickups.add_child(Pickup.make(ore, units, at, drift))
 
 
+## A rock breaks (the ship's laser or the cargo ship's dish): its ore comes loose as lumps for the ship or the drones to
+## gather. The dish works on its own, so its breaks are only announced every 20 s or so; your own always are.
+func break_rock(i: int, by_dish: bool) -> void:
+	var rname := belt.rock_name(i)
+	var ore_i := belt.ore[i]
+	var at: Vector3 = belt.pos[i] - world_offset
+	var r := belt.radius[i]
+	var loose := belt.kill(i)
+	var near: bool = belt.pos[i].distance_to(ship.true_pos()) < 3000.0
+	if near or not by_dish:
+		Audio.sfx("rock_break", 0.0 if belt.cls[i] > 0 else -4.0)
+	if ore_i >= 0 and loose > 0.0:
+		var k: int = clampi(roundi(loose / 40.0), 1, 8)
+		var ore_key: String = Data.ORE_KEYS[ore_i]
+		for n in k:
+			var dir := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
+			spawn_pickup(ore_key, loose / k, at + dir * r * randf_range(0.1, 0.5), dir * randf_range(20.0, 60.0))
+	var quiet: bool = by_dish and State.time - _dish_toast_t < 20.0
+	if by_dish and not quiet:
+		_dish_toast_t = State.time
+	if not quiet:
+		var who := "Cargo ship dish: " if by_dish else ""
+		if ore_i >= 0 and loose > 0.0:
+			hud.toast("%s%s broken · %d %s loose" % [who, rname, roundi(loose), Data.ORES[Data.ORE_KEYS[ore_i]]["name"]], false)
+		else:
+			hud.toast("%s%s broken · scrap only" % [who, rname], false)
+
+
 func _process(dt: float) -> void:
 	if Input.is_action_just_pressed("quit"):
 		State.save_game()
@@ -256,6 +295,9 @@ func _process(dt: float) -> void:
 	ship.tick(dt)
 	Audio.engine(ship.throttle, ship.afterburning, ship.braking, ship.docked or not ship.cut.is_empty() or not ship.warp.is_empty())
 	Audio.laser(ship.firing and not ship.docked, ship.laser_on)
+	if ship.warp.is_empty():
+		carrier.tick_dish(dt, belt)
+		drones.tick(dt)
 	for p in pickups.get_children():
 		if p.tick(dt, ship.position):
 			p.queue_free()
@@ -351,6 +393,8 @@ func _smoke_step() -> void:
 		"start":
 			if _frame == 5:
 				State.tut = 0
+				State.depot["laser"] = 1     # the cargo ship upgrades, so the dish and a drone get exercised
+				State.depot["collectors"] = 1
 			if _frame == 20:
 				print("smoke: zone=%s rocks=%d chunks=%d docked=%s dock=%s" % [zone["id"], belt.count, belt._mms.size(), str(ship.docked), CargoShip.bay_name(ship.dock_side)])
 				_shot("smoke_launch")
@@ -385,6 +429,8 @@ func _smoke_step() -> void:
 			if _phase_frame == 150:
 				print("smoke: engine loops at throttle %.1f %s" % [ship.throttle, str(Audio.loop_state())])
 				ship.throttle = 0.0
+			if _phase_frame == 200 or _phase_frame == 400:
+				print("smoke: dish %s · drones %s · stowed by drones %.0f · pickups %d" % [str(carrier.dish_stats()), str(drones.stats()), State.drone_units, pickups.get_child_count()])
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
@@ -410,10 +456,23 @@ func _smoke_step() -> void:
 				print("smoke: docked in %s · store %.0f -> %.0f · hold=%.0f · fuel=%.1f/%.0f shipFuel=%.0f" % [CargoShip.bay_name(ship.dock_side), before, State.store_total(), State.cargo_total(), State.fuel, State.stat("tank")["cap"], State.ship_fuel])
 				_next("docked")
 		"docked":
+			if _phase_frame == 60:
+				print("smoke: dish %s · drones %s · stowed by drones %.0f · pickups %d" % [str(carrier.dish_stats()), str(drones.stats()), State.drone_units, pickups.get_child_count()])
+				# two lumps of gold just off the drone dock, so a collector can finish a whole run while we sit on the pad
+				for p in pickups.get_children():
+					p.queue_free()   # the lumps left by the mining are kilometres out; this check wants a short run
+				var dock_l: Vector3 = carrier.anchors.get("drone_dock_0", Vector3(760, -60, 1500))
+				for n in 2:
+					spawn_pickup("gold", 40.0, carrier.to_true(dock_l + Vector3(400.0 + n * 120.0, 60.0, 500.0)) - world_offset, Vector3.ZERO)
+				drones.reset()
 			if _phase_frame == 90:
 				var lp := carrier.to_local_true(ship.true_pos())
 				print("smoke: on the pad · local=(%.0f, %.0f, %.0f) park=%s" % [lp.x, lp.y, lp.z, str(CargoShip.park_local(ship.dock_side))])
 				_shot("smoke_pad")
+			if _phase_frame % 600 == 0:
+				print("smoke: waiting on the drone · %s · stowed %.0f" % [str(drones.stats()), State.drone_units])
+			if _phase_frame > 90 and (State.drone_units > 0.5 or _phase_frame > 6000):
+				print("smoke: drone run %s · stowed by drones %.0f · store gold %.0f" % ["done" if State.drone_units > 0.5 else "TIMED OUT", State.drone_units, State.store["gold"]])
 				ship.start_departure()
 				_next("depart")
 		"depart":

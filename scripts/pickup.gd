@@ -11,6 +11,7 @@ var ore: String
 var units: float
 var vel := Vector3.ZERO
 var age := 0.0
+var claimed = null   # the collector drone heading for this lump, so two never chase the same one
 
 static var _mesh: SphereMesh
 

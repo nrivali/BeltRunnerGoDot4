@@ -12,6 +12,18 @@ docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on s
 restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
 (`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 7 — the dish turret and the collector drones
+
+| Piece | Where | Status |
+|---|---|---|
+| Cargo ship upgrades in the services panel: the mast mining laser (three levels) and collector drones (three levels) | `scripts/data.gd`, `scripts/game_state.gd`, `scripts/hud.gd` | ported |
+| The dish: retargets every 0.6 s onto the nearest ore rock its level can open, in arc and clear of the hull; slews yaw and pitch at 0.45 rad/s; fires within a degree or so; breaks rocks and leaves the ore adrift | `scripts/cargo_ship.gd` | ported from updateDepot, driving the carrier model's own dish_yaw / dish_pitch / focus rig |
+| Collector drones: dock off mouth 1, claim the nearest loose lump in range, gather to capacity, fly home in through the nearest mouth, down the lane to the drop-off pad, unload into storage, out the far mouth | `scripts/drones.gd` | ported from updateCollectors, with the same steering, speeds and waits |
+| Rock breaks shared between the ship's laser and the dish; the dish's breaks are only announced every 20 s | `scripts/main.gd` | ported |
+
+Not in this milestone: the dish's rim-emitter glow and converging beams, the hangar force fields flashing as a drone
+passes, and the drone HUD markers.
+
 ## Milestone 6 — traffic at the Hub
 
 | Piece | Where | Status |
@@ -105,9 +117,9 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: drones and the dish turret, rocks drifting on their orbit rails, rock fragments, raiders, the tow, the Q lock,
-the drag-and-drop inventory grid, a menu and settings (sound volume). The game logic for those exists in the HTML and
-ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
+Not yet: rocks drifting on their orbit rails, rock fragments, raiders, the tow, the Q lock, the drag-and-drop inventory
+grid, a menu and settings (sound volume). The game logic for those exists in the HTML and ports the same way. The
+browser's ambience beats were removed from the game by the user, so there are none.
 
 ## Conventions
 

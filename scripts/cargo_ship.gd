@@ -70,6 +70,15 @@ const MODEL := "res://assets/carrier/cargo_carrier.glb"
 var model: Node3D
 var anchors := {}
 
+# the mining dish on the mast: the model's own yaw and pitch rig, slewed onto rocks by the cargo ship laser upgrade
+var dish_yaw: Node3D
+var dish_pitch: Node3D
+var pivot := Vector3(-40.0, 995.0, 0.0)     # dish_mount
+var pitch_off := Vector3(40.0, 0.0, 0.0)    # the pitch group's offset from the yaw pivot
+var focus_local := Vector3(158.0, 105.0, 0.0)   # the beam's origin within the pitch group
+var dish := {"rock": -1, "yaw": 0.0, "pitch": 0.15, "firing": false, "retarget": 0.0, "hit": Vector3.ZERO}
+var _beam: MeshInstance3D
+
 
 func _ready() -> void:
 	if not _load_model():
@@ -106,8 +115,165 @@ func _load_model() -> bool:
 		glow.omni_range = 900.0
 		glow.position = e + Vector3(-100, 0, 0)
 		add_child(glow)
-	print("carrier: model loaded, %d anchors" % anchors.size())
+	var dy := model.find_child("dish_yaw", true, false)
+	var dp := model.find_child("dish_pitch", true, false)
+	var fc := model.find_child("focus", true, false)
+	if dy is Node3D and dp is Node3D:
+		dish_yaw = dy
+		dish_pitch = dp
+		pivot = dish_yaw.position
+		pitch_off = dish_pitch.position
+		if fc is Node3D:
+			focus_local = (fc as Node3D).position
+	_beam = MeshInstance3D.new()
+	_beam.top_level = true
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 3.0
+	cyl.bottom_radius = 5.0
+	cyl.height = 1.0
+	cyl.radial_segments = 6
+	_beam.mesh = cyl
+	var bm := StandardMaterial3D.new()
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.albedo_color = Color(1.0, 0.77, 0.4, 0.85)
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bm.emission_enabled = true
+	bm.emission = Color(1.0, 0.7, 0.3)
+	bm.emission_energy_multiplier = 3.0
+	_beam.material_override = bm
+	_beam.visible = false
+	add_child(_beam)
+	print("carrier: model loaded, %d anchors, dish rig %s" % [anchors.size(), "found" if dish_yaw else "missing"])
 	return true
+
+
+# ---- the mast dish (the cargo ship mining laser upgrade), ported from updateDepot
+## The yaw and pitch that would point the dish at a carrier-local point.
+func turret_angles(local: Vector3) -> Vector2:
+	var L := local - pivot
+	return Vector2(atan2(-L.z, L.x), atan2(L.y - pitch_off.y, Vector2(L.x, L.z).length() - pitch_off.x))
+
+
+## Where the beam starts, in the carrier's frame, for a given yaw and pitch.
+func muzzle_local(yaw: float, pitch: float) -> Vector3:
+	var f := focus_local.rotated(Vector3.BACK, pitch) + pitch_off
+	return f.rotated(Vector3.UP, yaw) + pivot
+
+
+static func _wrap(a: float) -> float:
+	return fposmod(a + PI, TAU) - PI
+
+
+## Reachable: within the pitch limits, and the beam from the mast top must not pass through the carrier's own hull box.
+func _in_arc(ang: Vector2, local: Vector3) -> bool:
+	if ang.y < Data.TURRET_PITCH_MIN or ang.y > Data.TURRET_PITCH_MAX:
+		return false
+	var origin := muzzle_local(ang.x, ang.y)
+	var d := local - origin
+	var len := d.length()
+	if len < 1e-3:
+		return false
+	d /= len
+	var s := 0.0
+	while s < min(len, 7000.0):
+		var p := origin + d * s
+		if absf(p.x) < HALF.x and absf(p.y) < HALF.y and absf(p.z) < HALF.z:
+			return false
+		s += 150.0
+	return true
+
+
+## Slew onto the nearest ore rock the dish's level can open, fire once both axes are within a degree or so, cut it, and
+## leave its ore adrift for the collector drones (or the ship) to gather.
+func tick_dish(dt: float, belt: Belt) -> void:
+	if dish_yaw == null:
+		return
+	var L = Data.DEPOT_UPGRADES["laser"]["levels"][State.depot["laser"]]
+	var D := dish
+	var slew := func(cur: float, want: float) -> float:
+		return cur + clampf(want - cur, -Data.TURRET_SLEW * dt, Data.TURRET_SLEW * dt)
+	var slew_yaw := func(cur: float, want: float) -> float:
+		return _wrap(cur + clampf(_wrap(want - cur), -Data.TURRET_SLEW * dt, Data.TURRET_SLEW * dt))
+	_beam.visible = false
+	if L == null:
+		D["rock"] = -1
+		D["firing"] = false
+		D["yaw"] = slew_yaw.call(D["yaw"], 0.0)
+		D["pitch"] = slew.call(D["pitch"], 0.15)
+	else:
+		var range: float = L["range"]
+		D["retarget"] = float(D["retarget"]) - dt
+		var rock: int = D["rock"]
+		if rock >= belt.count:
+			rock = -1   # the belt was rebuilt under it (a zone change)
+		if rock >= 0 and (belt.alive[rock] == 0 or belt.pos[rock].distance_to(true_pos) > range * 1.15):
+			rock = -1
+		if rock < 0 and float(D["retarget"]) <= 0.0:
+			D["retarget"] = 0.6
+			var best := -1
+			var bd := range * range
+			var scan: Dictionary = belt.scan(true_pos, range)
+			if scan["count"] > 0:
+				for ci in belt._chunk_centre.size():
+					if (belt._chunk_centre[ci] as Vector3).distance_squared_to(true_pos) > (range + Belt.CHUNK * 0.87) * (range + Belt.CHUNK * 0.87):
+						continue
+					for i in belt._chunk_rocks[ci]:
+						if belt.alive[i] == 0 or belt.ore[i] < 0 or belt.amount[i] <= 0.05:
+							continue
+						if int(Data.ORES[Data.ORE_KEYS[belt.ore[i]]]["unlock"]) > int(State.depot["laser"]) + 1:
+							continue   # the dish only works ores its own level has opened
+						var d2 := belt.pos[i].distance_squared_to(true_pos)
+						if d2 >= bd:
+							continue
+						var local := to_local_true(belt.pos[i])
+						if not _in_arc(turret_angles(local), local):
+							continue
+						bd = d2
+						best = i
+			rock = best
+			D["firing"] = false
+		D["rock"] = rock
+		if rock >= 0:
+			var local := to_local_true(belt.pos[rock])
+			var want := turret_angles(local)
+			if not _in_arc(want, local):
+				D["rock"] = -1
+				D["firing"] = false
+			else:
+				D["yaw"] = slew_yaw.call(D["yaw"], want.x)
+				D["pitch"] = slew.call(D["pitch"], want.y)
+				var err: float = max(absf(_wrap(want.x - float(D["yaw"]))), absf(want.y - float(D["pitch"])))
+				D["firing"] = not (err > (0.06 if D["firing"] else 0.02))
+				if D["firing"]:
+					var muzzle := to_true(muzzle_local(D["yaw"], D["pitch"]))
+					var hit: Vector3 = belt.pos[rock] + (muzzle - belt.pos[rock]).normalized() * belt.radius[rock] * 0.85
+					D["hit"] = hit
+					belt.damage(rock, float(L["rate"]) * 5.0 * dt)
+					if belt.hp[rock] <= 0.0:
+						main.break_rock(rock, true)
+						D["rock"] = -1
+						D["firing"] = false
+					else:
+						var a: Vector3 = muzzle - main.world_offset
+						var b: Vector3 = hit - main.world_offset
+						var mid: Vector3 = (a + b) * 0.5
+						var len: float = a.distance_to(b)
+						if len > 1.0:
+							_beam.visible = true
+							_beam.global_position = mid
+							_beam.look_at(b, Vector3.UP)
+							_beam.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
+							_beam.scale = Vector3(1.0, len, 1.0)
+		else:
+			D["firing"] = false
+			D["yaw"] = slew_yaw.call(D["yaw"], 0.0)
+			D["pitch"] = slew.call(D["pitch"], 0.15)
+	dish_yaw.rotation = Vector3(0.0, D["yaw"], 0.0)
+	dish_pitch.rotation = Vector3(0.0, 0.0, D["pitch"])
+
+
+func dish_stats() -> Dictionary:
+	return {"rock": dish["rock"], "firing": dish["firing"], "yaw": snappedf(dish["yaw"], 0.01), "pitch": snappedf(dish["pitch"], 0.01)}
 
 
 func to_local_true(p_true: Vector3) -> Vector3:

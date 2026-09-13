@@ -11,7 +11,8 @@ var store := {}        # ore key -> units in the cargo ship's storage (50 slots)
 var fuel := 100.0
 var hull := 100.0
 var up := {"laser": 0, "cargo": 0, "engine": 0, "tank": 0, "scanner": 0, "range": 0, "hull": 0, "thrusters": 0, "overcharge": 0}
-var depot := {"laser": 0, "collectors": 0}   # cargo ship upgrades (not active in the port yet; kept so saves round-trip)
+var depot := {"laser": 0, "collectors": 0}   # cargo ship upgrades: the mast dish and the collector drones
+var drone_units := 0.0                       # ore the collectors have stowed, all told
 var ship_fuel := 1200.0   # the cargo ship's fuel supply, which the ship's tank fills from while docked
 var parts := 120.0        # repair parts aboard the cargo ship, one per hull point mended while docked
 var market := {}          # ore key -> price multiplier, drifting toward market_next every MARKET_PERIOD seconds
@@ -209,6 +210,31 @@ func buy_parts() -> Dictionary:
 	return {"units": n, "cost": n * Data.PARTS_PRICE, "partial": n < want - 0.5, "msg": ""}
 
 
+## Storage room for any ore at all (a drone only goes out if there is somewhere to put what it brings back).
+func store_any_room() -> bool:
+	if store_free() > 0:
+		return true
+	for k in store:
+		if store[k] > 0.5 and _stacks(store[k]) * Data.STACK - store[k] > 0.5:
+			return true
+	return false
+
+
+## Buy the next level of a cargo ship upgrade.
+func buy_depot(key: String) -> Dictionary:
+	var u: Dictionary = Data.DEPOT_UPGRADES[key]
+	var i: int = depot[key]
+	if i >= u["costs"].size():
+		return {"ok": false, "msg": "%s is fully upgraded" % u["name"]}
+	var c: float = u["costs"][i]
+	if credits < c:
+		return {"ok": false, "msg": "Not enough credits"}
+	credits -= c
+	depot[key] = i + 1
+	save_game()
+	return {"ok": true, "msg": "%s %s" % [u["name"], "installed" if i == 0 else "upgraded to Lv%d" % (i + 1)]}
+
+
 # ---- refits
 ## Buy the next level of a refit. Returns a message for the toast, and whether it went through.
 func buy(key: String) -> Dictionary:
@@ -231,7 +257,7 @@ func save_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "tut": tut, "mined": mined, "earned": earned, "time": time}))
+	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "droneUnits": drone_units, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "tut": tut, "mined": mined, "earned": earned, "time": time}))
 
 
 func load_game() -> bool:
@@ -266,5 +292,6 @@ func load_game() -> bool:
 		up[k] = clampi(int(u.get(k, 0)), 0, Data.UPGRADES[k]["levels"].size() - 1)
 	var d = s.get("depot", {})
 	for k in depot:
-		depot[k] = int(d.get(k, 0))
+		depot[k] = clampi(int(d.get(k, 0)), 0, Data.DEPOT_UPGRADES[k]["costs"].size())
+	drone_units = float(s.get("droneUnits", 0.0))
 	return true

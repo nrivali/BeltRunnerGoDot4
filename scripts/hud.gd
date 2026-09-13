@@ -448,6 +448,48 @@ func refresh_panel() -> void:
 			btn.pressed.connect(_buy.bind(key))
 		row.add_child(btn)
 		_refits.add_child(row)
+	# the cargo ship's own upgrades below the refits
+	var dh := Label.new()
+	dh.text = "CARGO SHIP UPGRADES"
+	dh.add_theme_color_override("font_color", DIM)
+	dh.add_theme_font_size_override("font_size", 12)
+	_refits.add_child(dh)
+	for key in Data.DEPOT_UPGRADES:
+		var u: Dictionary = Data.DEPOT_UPGRADES[key]
+		var i: int = State.depot[key]
+		var maxed: bool = i >= u["costs"].size()
+		var row := HBoxContainer.new()
+		var txt := VBoxContainer.new()
+		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var n := Label.new()
+		n.text = "%s  ·  %s" % [u["name"], ("Lv%d" % i) if i > 0 else "not installed"]
+		txt.add_child(n)
+		var d := Label.new()
+		d.add_theme_color_override("font_color", DIM)
+		d.add_theme_font_size_override("font_size", 12)
+		d.text = (Data.describe_depot(key, i) + " · fully upgraded") if maxed else (Data.describe_depot(key, i) + "  →  " + Data.describe_depot(key, i + 1))
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		txt.add_child(d)
+		row.add_child(txt)
+		var btn := Button.new()
+		if maxed:
+			btn.text = "Max"
+			btn.disabled = true
+		else:
+			var cost: float = u["costs"][i]
+			btn.text = "%s cr" % Data.fmt(cost)
+			btn.disabled = State.credits < cost
+			btn.pressed.connect(_buy_depot.bind(key))
+		row.add_child(btn)
+		_refits.add_child(row)
+
+
+func _buy_depot(key: String) -> void:
+	var r: Dictionary = State.buy_depot(key)
+	toast(r["msg"], not r["ok"])
+	if r["ok"]:
+		Audio.sfx("chime")
+	refresh_panel()
 
 
 ## The colony market: what is aboard and what it fetches, sell buttons, today's prices, and the cargo ship's fuel and parts.
