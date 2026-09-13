@@ -1,0 +1,26 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; but it is also possible to edit it manually.
+
+config_version=5
+
+[application]
+
+config/name="Belt Runner"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+
+[autoload]
+
+Data="*res://scripts/data.gd"
+State="*res://scripts/game_state.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
