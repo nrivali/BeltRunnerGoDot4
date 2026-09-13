@@ -12,6 +12,18 @@ docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on s
 restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
 (`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 6 — traffic at the Hub
+
+| Piece | Where | Status |
+|---|---|---|
+| 72 ships of nine kinds (shuttles, couriers, tugs, tankers, miners, freighters, haulers, liners, patrols) plus eight cargo carriers, in the HTML's proportions | `scripts/traffic.gd` | ported; plain meshes with engine glows and navigation lights |
+| 22 landing slots: six round each core pad, four on each terminal roof, the two berths | `scripts/traffic.gd` | ported |
+| Flight plans: arrivals to pads, roofs and berths, lift-offs, hold loops when the berths are full, passes by the rings, patrol laps; per-kind speeds and waits | `scripts/traffic.gd` | ported from trafficPlan / updateTraffic |
+| Half the landers and half the big ships already parked on arrival, the rest scattered along a first leg | `scripts/traffic.gd` | ported |
+
+Not in this milestone: the HTML's merged static geometry for the ships (each ship is a handful of meshes) and
+collision between traffic and the player, which the browser does not have either.
+
 ## Milestone 5 — the tutorial and the voice lines
 
 | Piece | Where | Status |
@@ -93,9 +105,9 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: traffic, drones and the dish turret, rocks drifting on their orbit rails, rock fragments, raiders, the tow, the
-Q lock, the drag-and-drop inventory grid, a menu and settings (sound volume). The game logic for those exists in the
-HTML and ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
+Not yet: drones and the dish turret, rocks drifting on their orbit rails, rock fragments, raiders, the tow, the Q lock,
+the drag-and-drop inventory grid, a menu and settings (sound volume). The game logic for those exists in the HTML and
+ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
 
 ## Conventions
 

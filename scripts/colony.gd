@@ -13,9 +13,16 @@ var _t := 0.0
 var model: Node3D
 
 
+var traffic: Traffic
+
+
 func _ready() -> void:
 	if not _load_model():
 		_build()
+	traffic = Traffic.new()
+	traffic.name = "Traffic"
+	traffic.colony_r = Data.COLONY["R"] + Data.COLONY["ringW"]
+	add_child(traffic)
 
 
 ## Astra's garden habitat: Habitat_Rings, Civic_Core and Comms_Dish, authored at 1/1000 scale (the rings reach 55 units,
@@ -45,6 +52,8 @@ func _load_model() -> bool:
 func tick(dt: float) -> void:
 	_t += dt
 	_ring.rotate_y(0.012 * dt)
+	if traffic:
+		traffic.tick(dt)
 	var phase := int(_t * 1.6) % 3
 	for i in _beacons.size():
 		var b: MeshInstance3D = _beacons[i]

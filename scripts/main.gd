@@ -329,8 +329,9 @@ func _smoke_tutorial() -> void:
 		"inv":
 			if _tut_frames == 30:
 				hud.toggle_inventory()
-			if _tut_frames == 60:
-				hud.toggle_inventory()
+		"return":
+			if _tut_frames == 30 and hud.inv_open:
+				hud.toggle_inventory()   # the inv step advances the moment the panel opens; close it again here
 
 
 func _shot(name: String) -> void:
@@ -437,8 +438,12 @@ func _smoke_step() -> void:
 				_shot("smoke_arrival")
 			if _phase_frame == 300 and not ship.cut.is_empty():
 				ship.skip_cut()
+			if _phase_frame == 200 and colony and colony.traffic:
+				print("smoke: traffic %s" % str(colony.traffic.stats()))
 			if ship.docked and ship.hold:
 				_shot("smoke_hub")
+				if colony and colony.traffic:
+					print("smoke: traffic on station %s" % str(colony.traffic.stats()))
 				var cr0 := State.credits
 				var aboard := State.cargo_total() + State.store_total()
 				ship.sell(Data.ORE_KEYS, true, true)
