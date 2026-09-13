@@ -46,6 +46,7 @@ func tick(dt: float, ship_pos: Vector3) -> bool:
 	if d < GRAB_RANGE:
 		var took: float = State.add_cargo(ore, units)
 		if took > 0.0:
+			Audio.sfx("pickup")
 			return true
 		# hold full: the lump bounces off and waits
 		vel = -to_ship.normalized() * 60.0

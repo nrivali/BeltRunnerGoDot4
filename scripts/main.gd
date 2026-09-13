@@ -17,6 +17,7 @@ var planet: MeshInstance3D
 var planet_true := Vector3.ZERO
 var colony: Colony
 var pickups: Node3D
+var tutorial: Tutorial
 var sun: DirectionalLight3D
 var env: Environment
 var _cull_t := 0.0
@@ -51,6 +52,13 @@ func _ready() -> void:
 	add_child(hud)
 	hud.bind(ship)
 	ship.toast.connect(hud.toast)
+	tutorial = Tutorial.new()
+	tutorial.name = "Tutorial"
+	tutorial.main = self
+	tutorial.ship = ship
+	tutorial.hud = hud
+	add_child(tutorial)
+	hud.tutorial = tutorial
 	var start := Data.zone_by_id("kessler" if _smoke else State.zone_id)
 	load_zone(start)
 	spawn_in_zone(false)
@@ -76,6 +84,10 @@ func _setup_inputs() -> void:
 	_key("dock", KEY_E)
 	_key("skip", KEY_SPACE)
 	_key("map", KEY_N)
+	_key("inventory", KEY_TAB)
+	_key("inventory", KEY_I)
+	_key("controls", KEY_C)
+	_key("tut_next", KEY_ENTER)
 	_key("quicksave", KEY_F5)
 	_key("quit", KEY_ESCAPE)
 
@@ -231,6 +243,10 @@ func _process(dt: float) -> void:
 		hud.toast("Saved", false)
 	if Input.is_action_just_pressed("map") and ship.warp.is_empty():
 		hud.toggle_map()
+	if Input.is_action_just_pressed("inventory"):
+		hud.toggle_inventory()
+	if Input.is_action_just_pressed("controls"):
+		hud.toggle_controls()
 	State.time += dt
 	State.tick_market(dt)
 	# the carrier drifts round its orbit; a docked ship rides along with it (at the Hub it holds station instead)
@@ -266,6 +282,7 @@ func _process(dt: float) -> void:
 		_save_t = 0.0
 		State.save_game()
 	hud.update(ship, belt, carrier)
+	tutorial.update(dt)
 	if _smoke:
 		_smoke_step()
 
@@ -279,6 +296,39 @@ var _frame := 0
 var _phase := "start"
 var _phase_frame := 0
 var _smoke_rock := -1
+var _tut_last := -1
+var _tut_frames := 0
+
+
+## The tutorial runs alongside the smoke loop: its steps are driven the way a pilot would drive them (a turn, Next, R,
+## Tab...) and every transition is printed, so the whole questline is exercised by the run.
+func _smoke_tutorial() -> void:
+	if not tutorial.active():
+		if _tut_last >= 0:
+			print("smoke: tutorial finished · voice plays: %s" % str(Audio.plays))
+			_tut_last = -2
+		return
+	var st := tutorial.step()
+	if st != _tut_last:
+		print("smoke: tutorial -> %d %s" % [st + 1, Tutorial.STEPS[st]["id"]])
+		_tut_last = st
+		_tut_frames = 0
+	_tut_frames += 1
+	match Tutorial.STEPS[st]["id"]:
+		"steer":
+			if _tut_frames == 30:
+				tutorial.flags["flown"] = true
+		"hud", "hangar", "refit", "hub", "done":
+			if _tut_frames == 30:
+				tutorial.advance()
+		"radar":
+			if _tut_frames == 30:
+				ship._radar()   # what R does (a scripted action_press is not a fresh press by the next frame)
+		"inv":
+			if _tut_frames == 30:
+				hud.toggle_inventory()
+			if _tut_frames == 60:
+				hud.toggle_inventory()
 
 
 func _shot(name: String) -> void:
@@ -293,8 +343,11 @@ func _smoke_step() -> void:
 		print("smoke: TIMEOUT in phase %s" % _phase)
 		get_tree().quit()
 		return
+	_smoke_tutorial()
 	match _phase:
 		"start":
+			if _frame == 5:
+				State.tut = 0
 			if _frame == 20:
 				print("smoke: zone=%s rocks=%d chunks=%d docked=%s dock=%s" % [zone["id"], belt.count, belt._mms.size(), str(ship.docked), CargoShip.bay_name(ship.dock_side)])
 				_shot("smoke_launch")

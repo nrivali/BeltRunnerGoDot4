@@ -49,6 +49,40 @@ var _ship: Ship
 var _map: PanelContainer
 var _map_body: VBoxContainer
 var map_open := false
+# tutorial card, highlight rings, controls list, inventory
+var tutorial: Tutorial
+var _tut_box: PanelContainer
+var _tut_step: Label
+var _tut_title: Label
+var _tut_text: Label
+var _tut_next: Button
+var _tut_wait: Label
+var _tut_hidden := false
+var _rings: RingOverlay
+var _ring_targets := {}
+var _ring_names: Array = []
+var _controls: PanelContainer
+var _inv: PanelContainer
+var _inv_body: VBoxContainer
+var inv_open := false
+var _deposit_btn: Button
+var _depart_btn: Button
+var _nav_btn: Button
+
+
+## Pulsing amber frames round the HUD pieces the tutorial is talking about.
+class RingOverlay extends Control:
+	var rects: Array = []
+	var t := 0.0
+	func _process(dt: float) -> void:
+		t += dt
+		queue_redraw()
+	func _draw() -> void:
+		var pulse := 0.5 + 0.5 * sin(t * 4.2)
+		for r in rects:
+			var rr: Rect2 = (r as Rect2).grow(8.0)
+			draw_rect(rr, Color(0.95, 0.64, 0.23, 0.55 + 0.45 * pulse), false, 2.0)
+			draw_rect(rr.grow(3.0), Color(0.95, 0.64, 0.23, 0.18 * pulse), false, 1.0)
 
 
 func _ready() -> void:
@@ -210,6 +244,10 @@ func _ready() -> void:
 	_flight = [pane, _speed, _right, _target_box, _cross, _marker]
 	_build_panel()
 	_build_map()
+	_build_controls()
+	_build_inventory()
+	_build_tutorial()
+	_ring_targets = {"status": pane, "readout": _right, "target": _target_box, "marker": _marker, "controls": _controls, "refits": _refits, "deposit": _deposit_btn, "navmap": _nav_btn, "depart": _depart_btn}
 
 
 func _box() -> StyleBoxFlat:
@@ -332,7 +370,7 @@ func _build_panel() -> void:
 	v.add_child(_hold_list)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	_button(row, "Deposit all  [E]", func(): if _ship: _ship.deposit_all())
+	_deposit_btn = _button(row, "Deposit all  [E]", func(): if _ship: _ship.deposit_all())
 	_button(row, "Take all", func(): if _ship: _ship.take_all())
 	v.add_child(row)
 	_head(v, "REFITS")
@@ -341,8 +379,8 @@ func _build_panel() -> void:
 	v.add_child(_refits)
 	var foot := HBoxContainer.new()
 	foot.add_theme_constant_override("separation", 8)
-	_button(foot, "Depart  [W]", func(): if _ship: _ship.start_departure())
-	_button(foot, "Nav map  [N]", func(): toggle_map())
+	_depart_btn = _button(foot, "Depart  [W]", func(): if _ship: _ship.start_departure())
+	_nav_btn = _button(foot, "Nav map  [N]", func(): toggle_map())
 	v.add_child(foot)
 
 
@@ -602,8 +640,8 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
 	var radar := "READY" if ship.radar_cd <= 0.0 else "%.1fs" % ship.radar_cd
 	var to_carrier := ship.true_pos().distance_to(carrier.true_pos) if carrier else 0.0
-	_right.text = "ZONE  %s\nCARGO SHIP  %s m\nLASER  %s   RANGE  %s m\nRADAR  %s" % [zone["name"], Data.fm(to_carrier), laser, Data.fm(State.stat("range")["reach"]), radar]
-	_credits.text = "%s cr" % Data.fmt(State.credits)
+	_right.text = "ZONE  %s\nCARGO SHIP  %s m\nLASER  %s   RANGE  %s m\nRADAR  %s\nCREDITS  %s cr" % [zone["name"], Data.fm(to_carrier), laser, Data.fm(State.stat("range")["reach"]), radar, Data.fmt(State.credits)]
+	_credits.visible = false   # the tutorial card lives top-left; credits ride in the readout instead
 	if ship.target >= 0 and belt.alive[ship.target] == 1:
 		var i := ship.target
 		_target_box.visible = true
@@ -658,3 +696,182 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		_marker.visible = false
 	if ship.docked and Engine.get_process_frames() % 30 == 0:
 		refresh_panel()
+		if inv_open:
+			_refresh_inventory()
+	# the tutorial's rings follow their targets
+	var rects: Array = []
+	if _tut_box.visible:
+		for n in _ring_names:
+			var c: Control = _ring_targets.get(n)
+			if c and c.is_visible_in_tree():
+				var r := c.get_global_rect()
+				if r.size.x > 2.0 and r.size.y > 2.0:
+					rects.append(r)
+	_rings.rects = rects
+
+
+# ---- the tutorial card (top-left), fed by Tutorial
+func _build_tutorial() -> void:
+	_rings = RingOverlay.new()
+	_rings.anchor_right = 1.0
+	_rings.anchor_bottom = 1.0
+	_rings.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_rings)
+	_tut_box = PanelContainer.new()
+	_tut_box.offset_left = 18
+	_tut_box.offset_top = 18
+	_tut_box.offset_right = 438
+	_tut_box.offset_bottom = 200
+	var sb := _box()
+	sb.border_color = AMBER
+	sb.border_width_left = 4
+	_tut_box.add_theme_stylebox_override("panel", sb)
+	_tut_box.visible = false
+	add_child(_tut_box)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	_tut_box.add_child(v)
+	var head := HBoxContainer.new()
+	_tut_step = Label.new()
+	_tut_step.add_theme_color_override("font_color", AMBER)
+	_tut_step.add_theme_font_size_override("font_size", 12)
+	_tut_step.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_tut_step)
+	_button(head, "Replay", func(): if tutorial: tutorial.speak())
+	_button(head, "Skip tutorial", func(): if tutorial: tutorial.skip())
+	v.add_child(head)
+	_tut_title = Label.new()
+	_tut_title.add_theme_font_size_override("font_size", 17)
+	v.add_child(_tut_title)
+	_tut_text = Label.new()
+	_tut_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tut_text.add_theme_font_size_override("font_size", 13)
+	v.add_child(_tut_text)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 12)
+	_tut_next = _button(foot, "Next  [Enter]", func(): if tutorial: tutorial.advance())
+	_tut_wait = Label.new()
+	_tut_wait.add_theme_color_override("font_color", AMBER)
+	_tut_wait.add_theme_font_size_override("font_size", 11)
+	foot.add_child(_tut_wait)
+	v.add_child(foot)
+
+
+## Show a step ({} hides the card): step, total, title, text, auto, wait, final, ring, ring2.
+func show_tutorial(d: Dictionary) -> void:
+	if d.is_empty():
+		_tut_box.visible = false
+		_ring_names = []
+		_rings.rects = []
+		return
+	_tut_box.visible = not _tut_hidden
+	_tut_step.text = "Flight Ops · %d / %d" % [d["step"], d["total"]]
+	_tut_title.text = d["title"]
+	_tut_text.text = d["text"]
+	_tut_next.visible = not d["auto"]
+	_tut_next.text = "Finish  [Enter]" if d["final"] else "Next  [Enter]"
+	_tut_wait.text = ("waiting · " + str(d["wait"])) if d["auto"] else ""
+	_ring_names = []
+	for k in ["ring", "ring2"]:
+		if str(d.get(k, "")) != "":
+			_ring_names.append(d[k])
+
+
+func tutorial_hidden(h: bool) -> void:
+	_tut_hidden = h
+	if tutorial and tutorial.active():
+		_tut_box.visible = not h
+
+
+# ---- the flight controls list, bottom-left (C hides and shows it)
+func _build_controls() -> void:
+	_controls = PanelContainer.new()
+	_controls.anchor_top = 1.0
+	_controls.anchor_bottom = 1.0
+	_controls.offset_left = 18
+	_controls.offset_top = -250
+	_controls.offset_right = 330
+	_controls.offset_bottom = -16
+	_controls.add_theme_stylebox_override("panel", _box())
+	add_child(_controls)
+	var v := VBoxContainer.new()
+	_controls.add_child(v)
+	_head(v, "FLIGHT CONTROLS")
+	var l := Label.new()
+	l.add_theme_font_size_override("font_size", 12)
+	l.text = "Mouse  yaw · pitch\nW S  throttle up · down   X  cut\nA D  roll   Shift  afterburner\nLMB / Space / L  mining laser\nG  laser overcharge   R  radar pulse\nE  dock (near the cargo ship) · deposit (on the pad)\nN  nav map   Tab / I  inventory   C  hide this"
+	v.add_child(l)
+
+
+func toggle_controls() -> void:
+	_controls.visible = not _controls.visible
+
+
+# ---- the inventory (Tab / I): the hold, and the cargo ship's storage while docked
+func _build_inventory() -> void:
+	_inv = PanelContainer.new()
+	_inv.anchor_top = 0.5
+	_inv.anchor_bottom = 0.5
+	_inv.offset_left = 18
+	_inv.offset_top = -160
+	_inv.offset_right = 400
+	_inv.offset_bottom = 160
+	_inv.add_theme_stylebox_override("panel", _box())
+	_inv.visible = false
+	add_child(_inv)
+	_inv_body = VBoxContainer.new()
+	_inv_body.add_theme_constant_override("separation", 6)
+	_inv.add_child(_inv_body)
+
+
+func toggle_inventory() -> void:
+	inv_open = not inv_open
+	_inv.visible = inv_open
+	if inv_open:
+		_refresh_inventory()
+
+
+func _refresh_inventory() -> void:
+	for c in _inv_body.get_children():
+		c.queue_free()
+	var title := Label.new()
+	title.text = "INVENTORY · hold %d / %d slots" % [State.used_slots(), State.cargo_slots()]
+	title.add_theme_font_size_override("font_size", 16)
+	_inv_body.add_child(title)
+	var any := false
+	for k in Data.ORE_KEYS:
+		if State.cargo[k] > 0.5:
+			any = true
+			var l := Label.new()
+			l.text = "%s   %d u   ·   %s cr at the Hub" % [Data.ORES[k]["name"], roundi(State.cargo[k]), Data.fmt(State.cargo[k] * State.price(k))]
+			_inv_body.add_child(l)
+	if not any:
+		var e := Label.new()
+		e.text = "The hold is empty. Break a rock and fly through the ore it drops."
+		e.add_theme_color_override("font_color", DIM)
+		e.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_inv_body.add_child(e)
+	if _ship and _ship.docked:
+		_head(_inv_body, "CARGO SHIP STORAGE · %d / %d slots · %s cr" % [State.store_used(), Data.STORE_SLOTS, Data.fmt(State.value_of(State.store))])
+		var anys := false
+		for k in Data.ORE_KEYS:
+			if State.store[k] > 0.5:
+				anys = true
+				var l := Label.new()
+				l.text = "%s   %d u" % [Data.ORES[k]["name"], roundi(State.store[k])]
+				l.add_theme_font_size_override("font_size", 12)
+				_inv_body.add_child(l)
+		if not anys:
+			var e := Label.new()
+			e.text = "Storage is empty."
+			e.add_theme_color_override("font_color", DIM)
+			_inv_body.add_child(e)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		_button(row, "Deposit all  [E]", func(): if _ship: _ship.deposit_all(); _refresh_inventory())
+		_button(row, "Take all", func(): if _ship: _ship.take_all(); _refresh_inventory())
+		_inv_body.add_child(row)
+	var close := Button.new()
+	close.text = "Close  [Tab]"
+	close.pressed.connect(toggle_inventory)
+	_inv_body.add_child(close)

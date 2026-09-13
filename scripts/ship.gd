@@ -24,6 +24,7 @@ var target := -1
 var laser_on := false
 var firing := false
 var radar_cd := 0.0
+var radar_pulsed := false   # for the tutorial: R has been pressed since the step began
 var last_scan := {}
 var mouse_steer := true   # off in the smoke test, where no one is holding the mouse
 
@@ -364,6 +365,7 @@ func start_approach() -> void:
 	laser_on = false
 	firing = false
 	_laser.visible = false
+	Audio.voice(["approach_control", "approach_1", "approach_2", "approach_3", "approach_4"][randi() % 5])   # one of five radio calls
 	toast.emit("Approach control has the ship · %s" % CargoShip.bay_name(far), false)
 
 
@@ -472,6 +474,11 @@ func enter_hangar(side: int) -> void:
 	exit_pending = false
 	hangar_t = 0.0
 	cut = {}
+	Audio.sfx("dock")
+	# the deck welcomes you back over the intercom, one of four announcements, once the clamps have clunked (not on a
+	# session's first dock, and not during the tutorial, whose own line for this step would talk over it)
+	if flown_out and State.tut < 0:
+		get_tree().create_timer(0.8).timeout.connect(func(): if docked and not hold: Audio.intercom("hangar_%d" % (1 + randi() % 4)))
 	toast.emit("Docked in %s · stow cargo from the services panel" % CargoShip.bay_name(side), false)
 	docked_changed.emit(true)
 	State.save_game()
@@ -491,6 +498,8 @@ func enter_berth() -> void:
 	dep_wait = true
 	hangar_t = 0.0
 	cut = {}
+	Audio.sfx("dock")
+	get_tree().create_timer(0.9).timeout.connect(func(): if docked and hold: Audio.voice("colony_control"))
 	toast.emit("Holding station off Meridian Colony · the market is open", false)
 	docked_changed.emit(true)
 	State.save_game()
@@ -562,6 +571,7 @@ func deposit_all() -> void:
 	if moved < 0.5:
 		toast.emit("Cargo ship storage is full" if had > 0.5 else "Nothing in the hold to stow", true)
 		return
+	Audio.sfx("stow")
 	toast.emit("Stowed %d aboard the cargo ship%s" % [roundi(moved), " · storage full, the rest stays in the hold" if State.cargo_total() > 0.5 else ""], false)
 	State.save_game()
 	docked_changed.emit(true)   # the panel re-reads the hold
@@ -572,6 +582,7 @@ func take_all() -> void:
 	if moved < 0.5:
 		toast.emit("No room in the hold" if State.store_total() > 0.5 else "Storage is empty", true)
 		return
+	Audio.sfx("stow")
 	toast.emit("Took %d back aboard" % roundi(moved), false)
 	State.save_game()
 	docked_changed.emit(true)
@@ -583,6 +594,7 @@ func sell(keys: Array, from_hold: bool, from_store: bool) -> void:
 	if r["units"] < 0.5:
 		toast.emit("Nothing to sell", true)
 		return
+	Audio.sfx("cash")
 	toast.emit("Sold %d · +%s cr" % [roundi(r["units"]), Data.fmt(r["credits"])], false)
 	docked_changed.emit(true)
 
@@ -620,6 +632,8 @@ func start_warp(z: Dictionary) -> void:
 		return
 	warp = {"z": z, "t": 0.0, "loaded": false, "skip": false, "from_hold": hold}
 	docked_changed.emit(false)
+	Audio.sfx("chime")
+	get_tree().create_timer(0.4).timeout.connect(func(): if not warp.is_empty(): Audio.voice("warp_ready"))
 	toast.emit("Jump · %s · %s ly · Space skips" % [z["name"], str(Data.zone_ly(main.zone, z))], false)
 
 
@@ -724,6 +738,7 @@ func _break(i: int) -> void:
 	var at: Vector3 = belt.pos[i] - main.world_offset
 	var r := belt.radius[i]
 	var loose := belt.kill(i)
+	Audio.sfx("rock_break", 0.0 if belt.cls[i] > 0 else -4.0)
 	if ore_i >= 0 and loose > 0.0:
 		var k: int = clampi(roundi(loose / 40.0), 1, 8)
 		var ore_key: String = Data.ORE_KEYS[ore_i]
@@ -739,6 +754,8 @@ func _radar() -> void:
 	if radar_cd > 0.0:
 		return
 	radar_cd = Data.PULSE_CD
+	radar_pulsed = true
+	Audio.sfx("radar_ping")
 	var range: float = State.stat("scanner")["range"]
 	last_scan = belt.scan(true_pos(), range)
 	if last_scan["count"] == 0:
@@ -754,6 +771,7 @@ func _toggle_overcharge() -> void:
 		toast.emit("No laser overcharge fitted · it is a refit in the cargo ship services", true)
 		return
 	overcharge = not overcharge
+	Audio.sfx("chime")
 	if overcharge:
 		toast.emit("Laser overcharge armed · ×%s damage · draws %.1f fuel/s while cutting" % [str(m), Data.OVER_BURN * m], false)
 	else:

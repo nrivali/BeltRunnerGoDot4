@@ -12,6 +12,18 @@ docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on s
 restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
 (`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 5 — the tutorial and the voice lines
+
+| Piece | Where | Status |
+|---|---|---|
+| Flight Ops questline: 14 steps, each waiting for the real action or for Next (Enter), with Skip and Replay | `scripts/tutorial.gd` | ported from TUT; the lock step waits for a copper rock under the nose (no Q lock yet) |
+| The card top-left and pulsing rings round the HUD piece each step talks about | `scripts/hud.gd` | rebuilt |
+| Recorded voice lines: the tutorial's 14, five approach calls, colony control, warp ready | `scripts/audio.gd`, `sfx/*.mp3` | ported; radio squelch open and close round every line, one voice at a time |
+| Hangar deck announcements over the intercom (band-pass, overdrive, big-room reverb, PA chime) | `scripts/audio.gd` | ported to an audio bus with Godot's own effects |
+| One-shot effects: dock, chime, cash, stow, pickup, rock break, radar ping | `scripts/audio.gd` | wired (the engine, laser and retro loops and the ambience beats are not yet) |
+| Flight controls list bottom-left (C hides it), inventory panel (Tab / I) | `scripts/hud.gd` | rebuilt (a list, not the drag-and-drop grid) |
+| Tutorial progress saved (`tut`, -1 once done); a new game starts on step 1 | `scripts/game_state.gd` | ported |
+
 ## Milestone 4 — Astra's Blender models
 
 The GLB files under `assets/` are copies of the ones the browser game loads (from the BeltRunner repo's `assets/`
@@ -80,8 +92,9 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: traffic, drones and the dish turret, the tutorial and voice lines, audio, rocks drifting on their orbit rails,
-rock fragments, raiders, the tow, the inventory grid. The game logic for those exists in the HTML and ports the same way.
+Not yet: traffic, drones and the dish turret, the engine/laser/retro loops and ambience beats, rocks drifting on their
+orbit rails, rock fragments, raiders, the tow, the Q lock, the drag-and-drop inventory grid, a menu and settings. The
+game logic for those exists in the HTML and ports the same way.
 
 ## Conventions
 

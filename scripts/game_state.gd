@@ -18,6 +18,7 @@ var market := {}          # ore key -> price multiplier, drifting toward market_
 var market_next := {}
 var market_t := 0.0
 var zone_id := "kessler"
+var tut := 0              # tutorial step; -1 once finished or skipped
 var mined := 0.0
 var earned := 0.0
 var time := 0.0
@@ -230,7 +231,7 @@ func save_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "mined": mined, "earned": earned, "time": time}))
+	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "tut": tut, "mined": mined, "earned": earned, "time": time}))
 
 
 func load_game() -> bool:
@@ -251,6 +252,7 @@ func load_game() -> bool:
 	earned = float(s.get("earned", earned))
 	time = float(s.get("time", time))
 	zone_id = str(s.get("zone", zone_id))
+	tut = int(s.get("tut", -1))   # saves from before the tutorial existed skip it
 	var c = s.get("cargo", {})
 	var st = s.get("store", {})
 	var mk = s.get("market", {})
