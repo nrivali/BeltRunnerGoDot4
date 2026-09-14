@@ -79,6 +79,16 @@ var _low_hull_warned := false
 var look_yaw := 0.0
 var look_pitch := 0.0
 var rdown := false
+
+# the radar pulse's visuals (pulseSphere / pulseRing): a faint sphere and a bright ring growing to scanner range
+var pulse := {}
+var _pulse_sphere: MeshInstance3D
+var _pulse_ring: MeshInstance3D
+# the engines' exhaust glows, the navigation lights and the engine light (exhausts / navLights / shipLight)
+var _exhausts: Array = []
+var _exhaust_mat: StandardMaterial3D
+var _nav_lights: Array = []
+var _engine_lights: Array = []
 var _tug: Node3D
 var _tug_strobe: StandardMaterial3D
 var _tug_light: OmniLight3D
@@ -273,18 +283,146 @@ func _build_body() -> void:
 		model.scale = Vector3.ONE * Data.SHIP_SCALE
 		model.rotation = Vector3(0.0, PI, 0.0)
 		add_child(model)
+		var soft := _soft_texture()
+		_exhaust_mat = StandardMaterial3D.new()
+		_exhaust_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_exhaust_mat.albedo_color = Color(0.37, 0.83, 0.94, 0.15)
+		_exhaust_mat.albedo_texture = soft
+		_exhaust_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_exhaust_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_exhaust_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		_exhaust_mat.no_depth_test = false
 		for n in ["engine_l", "engine_r"]:
 			var a := model.find_child(n, true, false)
 			if a is Node3D:
 				var glow := OmniLight3D.new()
 				glow.light_color = Color("#5ed3f0")
-				glow.light_energy = 1.2
-				glow.omni_range = 40.0
+				glow.light_energy = 0.0
+				glow.omni_range = 140.0
+				glow.omni_attenuation = 1.0
 				(a as Node3D).add_child(glow)
+				_engine_lights.append(glow)
+				var q := MeshInstance3D.new()
+				var qm := QuadMesh.new()
+				qm.size = Vector2.ONE
+				q.mesh = qm
+				q.material_override = _exhaust_mat
+				q.position = Vector3(0.0, 0.0, -0.25)
+				q.scale = Vector3.ONE * 5.0
+				(a as Node3D).add_child(q)
+				_exhausts.append(q)
+		for pair in [["nav_l", Color("#ff5a5a")], ["nav_r", Color("#6bd69a")]]:
+			var a := model.find_child(pair[0], true, false)
+			if a is Node3D:
+				var q := MeshInstance3D.new()
+				var qm := QuadMesh.new()
+				qm.size = Vector2.ONE * 0.9
+				q.mesh = qm
+				var m := StandardMaterial3D.new()
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				m.albedo_color = pair[1]
+				m.albedo_color.a = 0.85
+				m.albedo_texture = soft
+				m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+				m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+				q.material_override = m
+				(a as Node3D).add_child(q)
+				_nav_lights.append(q)
 		_build_dish_fx()
+		_build_pulse_fx()
 		print("ship: model loaded")
 		return
 	_build_placeholder()
+
+
+## A soft radial glow texture for the sprites (the browser's texSoft / exhaustTex).
+static func _soft_texture() -> ImageTexture:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var d: float = Vector2(x - 31.5, y - 31.5).length() / 32.0
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			a = a * a * (3.0 - 2.0 * a)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
+
+
+## The radar pulse: a faint sphere and a bright ring (in the XY plane, as the browser's) that grow to scanner range.
+func _build_pulse_fx() -> void:
+	_pulse_sphere = MeshInstance3D.new()
+	_pulse_sphere.top_level = true
+	var sm := SphereMesh.new()
+	sm.radius = 1.0
+	sm.height = 2.0
+	sm.radial_segments = 32
+	sm.rings = 16
+	_pulse_sphere.mesh = sm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.37, 0.83, 0.94, 0.05)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_pulse_sphere.material_override = m
+	_pulse_sphere.visible = false
+	add_child(_pulse_sphere)
+	_pulse_ring = MeshInstance3D.new()
+	_pulse_ring.top_level = true
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.985
+	tm.outer_radius = 1.0
+	tm.rings = 128
+	tm.ring_segments = 6
+	_pulse_ring.mesh = tm
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.albedo_color = Color(0.56, 0.91, 1.0, 0.5)
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	rm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_pulse_ring.material_override = rm
+	_pulse_ring.rotation_degrees = Vector3(90, 0, 0)
+	_pulse_ring.visible = false
+	add_child(_pulse_ring)
+
+
+func _tick_pulse(dt: float) -> void:
+	if pulse.is_empty():
+		return
+	pulse["t"] = float(pulse["t"]) + dt
+	var t: float = pulse["t"]
+	if t >= Data.PULSE_TIME + 0.4:
+		pulse = {}
+		_pulse_sphere.visible = false
+		_pulse_ring.visible = false
+		return
+	var r: float = float(pulse["range"]) * min(1.0, t / Data.PULSE_TIME)
+	var f: float = 1.0 - min(1.0, t / Data.PULSE_TIME)
+	var at: Vector3 = (pulse["origin"] as Vector3) - main.world_offset
+	_pulse_sphere.visible = true
+	_pulse_sphere.global_position = at
+	_pulse_sphere.scale = Vector3.ONE * max(1.0, r)
+	(_pulse_sphere.material_override as StandardMaterial3D).albedo_color.a = 0.05 * f
+	_pulse_ring.visible = true
+	_pulse_ring.global_position = at
+	_pulse_ring.scale = Vector3.ONE * max(1.0, r)
+	(_pulse_ring.material_override as StandardMaterial3D).albedo_color.a = 0.55 * f
+
+
+## The exhaust glows swell and brighten with thrust, the navigation lights blink, the engine light comes on under thrust.
+func _tick_engine_fx() -> void:
+	if _exhaust_mat:
+		var ex: float = (0.35 + 0.6 * throttle + randf() * 0.1) if thrusting else 0.15
+		var es: float = ((22.0 if afterburning else 5.0 + 9.0 * throttle) + randf() * 4.0) if thrusting else 5.0
+		_exhaust_mat.albedo_color.a = ex
+		for q in _exhausts:
+			q.scale = Vector3.ONE * es
+	var blink: bool = fmod(State.time, 1.2) < 0.12
+	for l in _nav_lights:
+		l.visible = blink
+	for g in _engine_lights:
+		g.light_energy = ((5.0 if afterburning else 2.5) / PI) if thrusting else 0.0
 
 
 ## The mining dish's rig in Astra's model (mining_dish_yaw / mining_dish_pitch, the focus lens and six rim emitters)
@@ -745,6 +883,8 @@ func _tow_update(dt: float) -> void:
 
 func tick(dt: float) -> void:
 	torch.visible = torch_on and not docked and warp.is_empty() and visible
+	_tick_pulse(dt)
+	_tick_engine_fx()
 	# passing through a mouth's force field flashes it, under approach control or on your own
 	if carrier and not carrier.hold and warp.is_empty():
 		var fl := carrier.to_local_true(true_pos())
@@ -1469,7 +1609,8 @@ func _radar() -> void:
 	radar_pulsed = true
 	Audio.sfx("radar_ping")
 	var range: float = State.stat("scanner")["range"]
-	last_scan = belt.scan(true_pos(), range)
+	pulse = {"t": 0.0, "origin": true_pos(), "range": range}   # the visible pulse, expanding to scanner range over PULSE_TIME
+	last_scan = belt.scan(true_pos(), range, -1, range / Data.PULSE_TIME)
 	if last_scan["count"] == 0:
 		toast.emit("Radar: no ore within %s m" % Data.fm(range), true)
 	else:

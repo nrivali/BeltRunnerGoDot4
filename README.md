@@ -13,6 +13,14 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 15 — the curved hull, the radar pulse, exhaust and navigation lights
+
+| Piece | Where | Status |
+|---|---|---|
+| The cargo ship's curved pressure hull as the collision surface outside the passage: the profile exported with the model (18 stations of a superellipse cross-section and three engine envelopes) read from the glTF extras, the nearest surface point and normal found as hull-contact.js does; the box rules stay inside the bay | `scripts/cargo_ship.gd` (`hull_contact`) | ported from hull-contact.js rawContact |
+| The radar pulse you can see: a faint sphere and a bright ring growing to scanner range over 2.6 s, and rocks marked only once the pulse reaches them | `scripts/ship.gd` (`_tick_pulse`), `scripts/belt.gd` (`mark_from`) | ported from pulseSphere / pulseRing |
+| The engines' exhaust glows swell and brighten with thrust (wide open on the afterburner), the red and green navigation lights blink, the engine light comes on under thrust | `scripts/ship.gd` (`_tick_engine_fx`) | ported from the exhaust sprites, navLights and shipLight |
+
 ## Milestone 14 — fields, markers, the dish's effects, force fields, rock-on-rock
 
 | Piece | Where | Status |

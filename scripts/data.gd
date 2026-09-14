@@ -14,6 +14,7 @@ const OVER_BURN := 1.1
 const SHIP_SCALE := 3.0
 const SHIP_R := 16.0 * SHIP_SCALE
 const PULSE_CD := 5.0
+const PULSE_TIME := 2.6   # the radar pulse takes this long to reach scanner range
 ## The cargo ship: its orbit round the planet (inside the ring belt), fuel supply and repair-parts store, and 50-slot storage.
 const DEPOT_ORBIT := 925000.0
 const STATION_SPEED := 102.0

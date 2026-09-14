@@ -41,6 +41,7 @@ var mm_of := PackedInt32Array()      # index into _mms
 var slot_of := PackedInt32Array()
 var count := 0
 var mark_until := PackedFloat32Array()   # radar marks: State.time until which a rock shows as a blip
+var mark_from := PackedFloat32Array()    # and from when (the pulse expands to scanner range over PULSE_TIME)
 var _marked := PackedInt32Array()        # the rocks the last pulses reached
 const MARK_TIME := 25.0
 # the orbit rails (the HTML's a.ang / a.orbit, or the field's): every rock rides its rail at ORBIT_SPEED counter-clockwise
@@ -335,6 +336,7 @@ func clear() -> void:
 	mm_of = PackedInt32Array()
 	slot_of = PackedInt32Array()
 	mark_until = PackedFloat32Array()
+	mark_from = PackedFloat32Array()
 	_marked = PackedInt32Array()
 	ang = PackedFloat32Array()
 	orbit = PackedFloat32Array()
@@ -539,6 +541,7 @@ func _append_rock(p: Vector3, r: float, ore_i: int, hpm: float, amt: float, c: i
 	mm_of.append(-1)
 	slot_of.append(-1)
 	mark_until.append(0.0)
+	mark_from.append(0.0)
 	ang.append(ra)
 	orbit.append(max(1.0, ro))
 	free.append(1 if is_free else 0)
@@ -985,7 +988,7 @@ func ray_hit(origin: Vector3, dir: Vector3, reach: float) -> int:
 
 
 ## Ore-bearing live rocks within `range` of `from`: count and the nearest one's id. `only_ore` narrows it to one ore index.
-func scan(from: Vector3, range: float, only_ore: int = -1) -> Dictionary:
+func scan(from: Vector3, range: float, only_ore: int = -1, speed: float = 0.0) -> Dictionary:
 	var n := 0
 	var nearest := -1
 	var nd := INF
@@ -1003,6 +1006,7 @@ func scan(from: Vector3, range: float, only_ore: int = -1) -> Dictionary:
 				if mark_until[i] <= State.time:
 					_marked.append(i)
 				mark_until[i] = State.time + MARK_TIME
+				mark_from[i] = State.time + (sqrt(d2) / speed if speed > 0.0 else 0.0)   # the pulse reaches it later the farther it is
 	return {"count": n, "nearest": nearest, "dist": sqrt(nd) if nearest >= 0 else 0.0}
 
 
@@ -1014,6 +1018,8 @@ func marked(now: float, from: Vector3, max_n: int) -> Array:
 		if alive[i] == 0 or mark_until[i] <= now:
 			continue
 		keep.append(i)
+		if mark_from[i] > now:
+			continue   # the pulse has not reached it yet
 		out.append([i, rock_pos(i).distance_to(from), mark_until[i] - now])
 	_marked = keep
 	out.sort_custom(func(a, b): return a[1] < b[1])

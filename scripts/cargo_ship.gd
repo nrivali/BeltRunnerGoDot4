@@ -81,6 +81,7 @@ var _beam: MeshInstance3D
 var _sheath: MeshInstance3D
 var _hit_glow: MeshInstance3D
 var _fields := {}          # side -> {mesh, mat, flash}: the hangar mouths' force fields
+var _hull := {}            # the curved hull's collision profile from the model (stations, exponent, engines)
 var field_flashes := 0     # for the smoke run
 
 
@@ -198,8 +199,86 @@ func _load_model() -> bool:
 	_hit_glow.visible = false
 	add_child(_hit_glow)
 	_build_force_fields()
-	print("carrier: model loaded, %d anchors, dish rig %s" % [anchors.size(), "found" if dish_yaw else "missing"])
+	# the curved pressure hull's collision profile, exported with the model (hull-contact.js reads the same definition):
+	# longitudinal stations [x, half-width, half-height] of a superellipse cross-section, and three engine envelopes
+	var hp := model.find_child("hull_collision_profile", true, false)
+	if hp and hp.has_meta("extras"):
+		var ex = hp.get_meta("extras")
+		if typeof(ex) == TYPE_DICTIONARY and ex.has("definition"):
+			var def = JSON.parse_string(str(ex["definition"]))
+			if typeof(def) == TYPE_DICTIONARY and def.has("stations") and def.has("exponent"):
+				_hull = def
+	print("carrier: model loaded, %d anchors, dish rig %s, hull profile %s" % [anchors.size(), "found" if dish_yaw else "missing", ("%d stations" % (_hull["stations"] as Array).size()) if not _hull.is_empty() else "missing"])
 	return true
+
+
+## Contact with the curved hull (hull-contact.js rawContact): for a point p (carrier frame) and a ship radius, the nearest
+## point on the inflated hull surface and its outward normal, or {} when p is clear. The hull is a superellipse
+## (|y/h|^N + |z/w|^N = 1) whose half-width and half-height run along the stations; the engine bank is three capsules.
+func hull_contact(p: Vector3, radius: float) -> Dictionary:
+	var rows: Array = _hull["stations"]
+	var first: Array = rows[0]
+	var last: Array = rows[rows.size() - 1]
+	var N: float = _hull["exponent"]
+	var body := {}
+	if p.x >= float(first[0]) - radius and p.x <= float(last[0]) + radius:
+		var x: float = clampf(p.x, float(first[0]), float(last[0]))
+		var a: Array = first
+		var b: Array = rows[1]
+		for i in rows.size() - 1:
+			if x >= float(rows[i][0]) and x <= float(rows[i + 1][0]):
+				a = rows[i]
+				b = rows[i + 1]
+				break
+		var t: float = (x - float(a[0])) / max(1e-6, float(b[0]) - float(a[0]))
+		var w: float = float(a[1]) + (float(b[1]) - float(a[1])) * t + radius
+		var h: float = float(a[2]) + (float(b[2]) - float(a[2])) * t + radius
+		var yy: float = absf(p.y) / h
+		var zz: float = absf(p.z) / w
+		var level: float = pow(yy, N) + pow(zz, N)
+		if level < 1.0:
+			var s: float = pow(level, -1.0 / N) if level > 1e-12 else 0.0
+			var y: float = p.y * s if s > 0.0 else h
+			var z: float = p.z * s if s > 0.0 else 0.0
+			var side_d: float = Vector2(y - p.y, z - p.z).length()
+			var cap_d: float = min(p.x - float(first[0]) + radius, float(last[0]) + radius - p.x)
+			if cap_d < side_d:
+				var sgn: float = -1.0 if p.x < (float(first[0]) + float(last[0])) * 0.5 else 1.0
+				body = {"pos": Vector3(float(first[0]) - radius if sgn < 0.0 else float(last[0]) + radius, p.y, p.z), "n": Vector3(sgn, 0.0, 0.0)}
+			else:
+				var dy: float = (float(b[2]) - float(a[2])) / max(1e-6, float(b[0]) - float(a[0]))
+				var dz: float = (float(b[1]) - float(a[1])) / max(1e-6, float(b[0]) - float(a[0]))
+				var gy: float = absf(y) / h
+				var gz: float = absf(z) / w
+				var n := Vector3(-(pow(gy, N) * dy / h + pow(gz, N) * dz / w), (signf(y) if y != 0.0 else 1.0) * pow(gy, N - 1.0) / h, signf(z) * pow(gz, N - 1.0) / w)
+				body = {"pos": Vector3(p.x, y, z), "n": n.normalized() if n.length_squared() > 1e-12 else Vector3.UP}
+	for e in _hull.get("engines", []):
+		var x0: float = e[0]
+		var x1: float = e[1]
+		var cy: float = e[2]
+		var cz: float = e[3]
+		var r: float = e[4]
+		if p.x < x0 - radius or p.x > x1 + radius:
+			continue
+		var y: float = p.y - cy
+		var z: float = p.z - cz
+		var d := Vector2(y, z).length()
+		var allow := r + radius
+		if d >= allow:
+			continue
+		var side: float = allow - d
+		var cap: float = min(p.x - x0 + radius, x1 + radius - p.x)
+		var cand: Dictionary
+		if cap < side:
+			var sgn: float = -1.0 if p.x < (x0 + x1) * 0.5 else 1.0
+			cand = {"pos": Vector3(x0 - radius if sgn < 0.0 else x1 + radius, p.y, p.z), "n": Vector3(sgn, 0.0, 0.0)}
+		else:
+			var ny: float = y / d if d > 0.0 else 1.0
+			var nz: float = z / d if d > 0.0 else 0.0
+			cand = {"pos": Vector3(p.x, cy + ny * allow, cz + nz * allow), "n": Vector3(0.0, ny, nz)}
+		if body.is_empty() or (cand["pos"] as Vector3).distance_to(p) > (body["pos"] as Vector3).distance_to(p):
+			body = cand
+	return body
 
 
 ## The force field across each mouth: a shimmering grid sheet that ships pass straight through, flashing as they do.
@@ -454,6 +533,8 @@ func planet_side() -> int:
 ## clamped to the walls; anywhere else inside the hull it is pushed out through the nearest face; the prow is a cone.
 ## Returns {} for no contact, else {pos: corrected local position, n: local surface normal}.
 func collide(p: Vector3, m: float) -> Dictionary:
+	if not _hull.is_empty() and not in_corridor(p):
+		return hull_contact(p, m)   # the curved hull outside the passage; the bay walls keep the box rules inside it
 	if p.x > PROW_X0 and p.x < PROW_X1:
 		var rr := Vector2(p.y, p.z).length()
 		var allow := PROW_R0 * (PROW_X1 - p.x) / (PROW_X1 - PROW_X0) + m

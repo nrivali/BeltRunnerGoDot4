@@ -650,6 +650,9 @@ func _smoke_step() -> void:
 				var moved: float = belt.rock_pos(_smoke_rail).distance_to(_smoke_rail_p)
 				var secs: float = State.time - _smoke_rail_t
 				print("smoke: rails · rock %d drifted %.1f u in %.2f s (%.1f u/s) · free rocks %d" % [_smoke_rail, moved, secs, moved / max(0.01, secs), belt._free_ids.size()])
+				var hc: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 1200.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
+				var hc2: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 300.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
+				print("smoke: hull profile %s · point 1,200 off the flank: %s · point 300 in (outside the passage rule): %s" % ["loaded" if not carrier._hull.is_empty() else "missing", "clear" if hc.is_empty() else "contact n=%s" % str((hc["n"] as Vector3).snapped(Vector3.ONE * 0.01)), "clear" if hc2.is_empty() else "contact"])
 			if _phase_frame == 200 or _phase_frame == 400:
 				print("smoke: dish %s · drones %s · stowed by drones %.0f · pickups %d" % [str(carrier.dish_stats()), str(drones.stats()), State.drone_units, pickups.get_child_count()])
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
