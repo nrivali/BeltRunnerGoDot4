@@ -673,3 +673,31 @@ func _build_hull() -> void:
 		pad.material_override = _mat(Color("#c8912e"), 0.8, 0.1)
 		pad.position = park_local(side) + Vector3(0, -30, 0)
 		add_child(pad)
+
+
+# ---- rocks meeting the hull (depotBumpRocks): a rock that drifts into the carrier is shoved out to the hull surface
+# and set adrift, carried along at the carrier's speed with a nudge outward, so the belt never passes through the ship
+const BUMP_RANGE := 5600.0    # only rocks near enough to be seen being shoved
+var _bump_ids := PackedInt32Array()
+var _bump_frame := 0
+var bumps := 0                # rocks shoved so far, for the smoke print
+
+
+func bump_rocks(belt: Belt) -> void:
+	if _hull.is_empty():
+		return
+	_bump_frame += 1
+	if _bump_frame % 30 == 1:
+		_bump_ids = belt.rocks_within(true_pos, BUMP_RANGE)
+	for i in _bump_ids:
+		if i >= belt.count or belt.alive[i] == 0:
+			continue
+		var r: float = belt.radius[i]
+		var lp := to_local_true(belt.rock_pos(i))
+		if absf(lp.x) > HALF.x * 1.3 + r or absf(lp.y) > HALF.y * 1.3 + r or absf(lp.z) > HALF.z * 1.3 + r:
+			continue
+		var c := hull_contact(lp, r)
+		if c.is_empty():
+			continue
+		belt.place_free(i, to_true(c["pos"]), vel + dir(c["n"]) * 40.0)
+		bumps += 1

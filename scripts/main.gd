@@ -486,6 +486,7 @@ func _process(dt: float) -> void:
 		ship.position += moved
 	ship.tick(dt)
 	belt.tick(dt, ship.near_rocks)   # the rails' drift time for the rock shader, free rocks and scrap coasting, broken rocks growing back
+	carrier.bump_rocks(belt)   # rocks drifting into the carrier are shoved clear of its hull
 	sparks.tick(dt, world_offset)
 	if Engine.get_process_frames() % 10 == 0:
 		belt.update_lod0(ship.true_pos(), ship.near_rocks)   # the rocks close to the ship draw their finest mesh
@@ -549,6 +550,7 @@ var _smoke_count := 0
 var _smoke_cr := 0.0
 var _smoke_tow_phase := ""
 var _smoke_tow_frame := 0
+var _smoke_bump := -1
 var _tut_last := -1
 var _tut_frames := 0
 
@@ -666,6 +668,20 @@ func _smoke_step() -> void:
 				var hc: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 1200.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
 				var hc2: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 300.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
 				print("smoke: hull profile %s · point 1,200 off the flank: %s · point 300 in (outside the passage rule): %s" % ["loaded" if not carrier._hull.is_empty() else "missing", "clear" if hc.is_empty() else "contact n=%s" % str((hc["n"] as Vector3).snapped(Vector3.ONE * 0.01)), "clear" if hc2.is_empty() else "contact"])
+			if _phase_frame == 200:
+				# a rock near the carrier dropped inside its hull: the hull must shove it clear and set it adrift
+				_smoke_bump = -1
+				for j in belt.rocks_within(carrier.true_pos, 12000.0):
+					if belt.alive[j] == 1 and belt.free[j] == 0 and belt.radius[j] < 200.0:
+						_smoke_bump = j
+						break
+				if _smoke_bump >= 0:
+					belt.place_free(_smoke_bump, carrier.to_true(Vector3(-2600.0, 0.0, 0.0)), carrier.vel)
+			if _phase_frame == 240 and _smoke_bump >= 0:
+				var bl := carrier.to_local_true(belt.rock_pos(_smoke_bump))
+				var bc := carrier.hull_contact(bl, belt.radius[_smoke_bump]) if not carrier._hull.is_empty() else {}
+				print("smoke: carrier bump · rock %d r=%.0f dropped in the hull at x=-2600 · now %s at local %s · adrift at %.0f u/s off the carrier · bumps %d" % [_smoke_bump, belt.radius[_smoke_bump], "clear of the hull" if bc.is_empty() else "STILL INSIDE", str(bl.snapped(Vector3.ONE)), (belt.vel[_smoke_bump] - carrier.vel).length(), carrier.bumps])
+				belt.kill(_smoke_bump)   # out of the way of the docking run
 			if _phase_frame == 200 or _phase_frame == 400:
 				print("smoke: dish %s · drones %s · stowed by drones %.0f · pickups %d" % [str(carrier.dish_stats()), str(drones.stats()), State.drone_units, pickups.get_child_count()])
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:

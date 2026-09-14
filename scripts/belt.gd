@@ -710,6 +710,15 @@ func set_free(i: int, v: Vector3) -> void:
 	_write_custom(i)
 
 
+## A rock shoved to a new spot and set adrift (the carrier's hull pushing it clear).
+func place_free(i: int, p: Vector3, v: Vector3) -> void:
+	set_free(i, v)
+	pos[i] = p
+	var n: Node3D = _frag_nodes.get(i)
+	if n:
+		n.position = p - _offset
+
+
 ## A free rock's own node: a one-instance MultiMesh, so it carries its ore colour the same way the chunks do (an
 ## instance uniform would cost a buffer slot on every chunk node instead).
 func _make_node(i: int) -> void:
