@@ -270,6 +270,18 @@ var aim_pitch := 0.05
 var aimed := false
 var has_aim := false
 var aim_point := Vector3.ZERO   # true coordinates: where the beam is going this frame
+# the beam's heat effect (the browser's heatFx): the spot on the stone takes 30 s to reach white heat and cools off
+# over 10 s; it glows, lights the rock, throws sparks and, once hot, stamps scorches
+var spot_heat := 0.0
+var _spot_key := -1
+var _spot_pos := Vector3.ZERO   # true
+var _burn_t := 0.0
+var _spot: MeshInstance3D
+var _spot_mat: StandardMaterial3D
+var _spot_light: OmniLight3D
+# the fitting variants (laser barrel, cargo pod, engine nacelle, scanner dish, three tiers each) from the model's
+# second scene, brought in at run time and shown by refit level as the browser's assembler does
+var _variants := {}   # name -> Node3D
 
 
 ## Astra's player ship (delta wings, level-1 fittings), built with its nose along +Z as the HTML flies it, so it is turned
@@ -331,9 +343,152 @@ func _build_body() -> void:
 				_nav_lights.append(q)
 		_build_dish_fx()
 		_build_pulse_fx()
+		_build_spot_fx()
+		_load_variants()
+		configure_model()
 		print("ship: model loaded")
 		return
 	_build_placeholder()
+
+
+## The fitting variants live in the model's second glTF scene, which the scene importer leaves out; the glTF document
+## itself still lists every node, so the alternatives are built from it here (the assembler's parts map). Laser
+## barrels ride the dish's pitch group; everything else sits on the hull.
+func _load_variants() -> void:
+	for prefix in ["cargo_pod", "engine_nacelle", "scanner_dish", "wings", "laser_barrel"]:
+		for c in model.get_children():
+			if str(c.name).begins_with(prefix + "_"):
+				_variants[str(c.name)] = c
+		if _dish_pitch:
+			for c in _dish_pitch.get_children():
+				if str(c.name).begins_with(prefix + "_"):
+					_variants[str(c.name)] = c
+	var doc := GLTFDocument.new()
+	var st := GLTFState.new()
+	if doc.append_from_file(MODEL, st) != OK:
+		return
+	var pitch_in_model: Transform3D = model.global_transform.affine_inverse() * (_dish_pitch as Node3D).global_transform if _dish_pitch is Node3D else Transform3D.IDENTITY
+	for i in st.nodes.size():
+		var n: GLTFNode = st.nodes[i]
+		var nm := str(n.original_name)
+		if _variants.has(nm) or n.mesh < 0:
+			continue
+		var kind := ""
+		for prefix in ["cargo_pod", "engine_nacelle", "scanner_dish", "wings", "laser_barrel"]:
+			if nm.begins_with(prefix + "_"):
+				kind = prefix
+		if kind == "":
+			continue
+		var gm: GLTFMesh = st.meshes[n.mesh]
+		var mi := MeshInstance3D.new()
+		mi.name = nm
+		mi.mesh = gm.mesh.get_mesh()
+		if kind == "laser_barrel" and _dish_pitch is Node3D:
+			mi.transform = pitch_in_model.affine_inverse() * n.xform   # attached to the pitch group, pose kept
+			_dish_pitch.add_child(mi)
+		else:
+			mi.transform = n.xform
+			model.add_child(mi)
+		mi.visible = false
+		_variants[nm] = mi
+
+
+## playerVisualTier / configure: each fitting shows the tier its refit level has reached (1 to 3); the wings stay delta.
+func configure_model() -> void:
+	if _variants.is_empty():
+		return
+	var tiers := {}
+	for key in ["laser", "cargo", "engine", "scanner"]:
+		var levels: int = (Data.UPGRADES[key]["levels"] as Array).size()
+		tiers[key] = 1 + roundi(2.0 * float(State.up[key]) / float(levels - 1))
+	var want := {"laser_barrel": tiers["laser"], "cargo_pod": tiers["cargo"], "engine_nacelle": tiers["engine"], "scanner_dish": tiers["scanner"]}
+	for nm in _variants:
+		var node: Node3D = _variants[nm]
+		var shown := false
+		for prefix in want:
+			if nm.begins_with(prefix + "_"):
+				shown = nm == "%s_%d" % [prefix, int(want[prefix])]
+		if nm.begins_with("wings_"):
+			shown = nm == "wings_delta"
+		node.visible = shown
+
+
+func variant_report() -> String:
+	var out: Array = []
+	for nm in _variants:
+		if (_variants[nm] as Node3D).visible:
+			out.append(nm)
+	out.sort()
+	return ", ".join(out)
+
+
+## The glow at the beam's spot and the light it throws on the rock (heatFx's spot sprite and point light).
+func _build_spot_fx() -> void:
+	_spot = MeshInstance3D.new()
+	_spot.top_level = true
+	var qm := QuadMesh.new()
+	qm.size = Vector2.ONE
+	_spot.mesh = qm
+	_spot_mat = StandardMaterial3D.new()
+	_spot_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_spot_mat.albedo_color = Color(1.0, 0.18, 0.03, 0.0)
+	_spot_mat.albedo_texture = _soft_texture()
+	_spot_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_spot_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_spot_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	_spot.material_override = _spot_mat
+	_spot.visible = false
+	add_child(_spot)
+	_spot_light = OmniLight3D.new()
+	_spot_light.top_level = true
+	_spot_light.omni_range = 220.0
+	_spot_light.omni_attenuation = 1.4
+	_spot_light.light_energy = 0.0
+	_spot_light.visible = false
+	add_child(_spot_light)
+
+
+## heatFx.update: the beam takes a full 30 s on a rock to reach white heat and cools off over about 10 s once it comes
+## off; moving to a new rock leaves half the heat behind. The stone's own surface glow, the spot glow, the light, the
+## sparks and the scorches all follow the heat.
+func _tick_spot(dt: float, active: bool, hit: Vector3) -> void:
+	var key: int = target if active else -1
+	if key >= 0 and key != _spot_key:
+		spot_heat *= 0.5
+	if key >= 0:
+		_spot_key = key
+		_spot_pos = hit
+	spot_heat = clampf(spot_heat + (dt / 30.0 if active else -dt / 10.0), 0.0, 1.0)
+	var h := spot_heat
+	var on: bool = h > 0.01
+	var r: float = belt.radius[_spot_key] if (_spot_key >= 0 and _spot_key < belt.count) else 40.0
+	belt.set_spot_heat(0, _spot_pos, h if on else 0.0, min(r * 0.9, 8.0 + r * 0.05 + 22.0 * h))
+	if _spot == null:
+		return
+	_spot.visible = on
+	_spot_light.visible = on
+	if not on:
+		return
+	var cold := Color(1.0, 0.18, 0.03)
+	var warm := Color(1.0, 0.6, 0.23)
+	var white := Color(1.0, 0.95, 0.82)
+	var col: Color = cold.lerp(warm, h * 2.0) if h < 0.5 else warm.lerp(white, (h - 0.5) * 2.0)
+	var flick := 0.92 + randf() * 0.16
+	_spot.global_position = _spot_pos - main.world_offset
+	_spot.scale = Vector3.ONE * (4.0 + 14.0 * h) * flick
+	_spot_mat.albedo_color = Color(col, 0.2 + 0.6 * h)
+	_spot_light.global_position = _spot_pos - main.world_offset
+	_spot_light.light_color = col
+	_spot_light.light_energy = h * h * 40.0 * flick / PI
+	if active and _spot_key >= 0:
+		var rock_centre := belt.rock_pos(_spot_key)
+		var nrm := (_spot_pos - rock_centre).normalized()
+		main.sparks.emit(_spot_pos, nrm, h, dt)   # a shower of streaks off the surface, more and hotter as the spot heats
+		if h > 0.3:
+			_burn_t += dt
+			if _burn_t > 0.1:
+				_burn_t = 0.0
+				belt.scorch(_spot_key, _spot_pos, min(r * 0.5, 6.0 + r * 0.04 + 10.0 * h))
 
 
 ## A soft radial glow texture for the sprites (the browser's texSoft / exhaustTex).
@@ -937,6 +1092,7 @@ func tick(dt: float) -> void:
 		laser_on = false
 		has_aim = false
 		_laser.visible = false
+		_tick_spot(dt, false, Vector3.ZERO)
 		_tick_dish(dt)
 		return
 	_tick_laser(dt, forward())
@@ -1561,18 +1717,17 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 	target = belt.ray_hit(origin, fwd, reach)
 	laser_on = false
 	_laser.visible = false
-	belt.set_spot_heat(0, Vector3.ZERO, 0.0, 1.0)
 	has_aim = target >= 0
 	if has_aim:
 		aim_point = belt.rock_pos(target)
 	if not firing:
+		_tick_spot(dt, false, Vector3.ZERO)
 		return
 	var end := origin + fwd * reach
 	if target >= 0:
 		var oc: float = State.stat("overcharge")["mult"] if (overcharge and State.fuel > 0.0) else 1.0
 		var can_cut: bool = belt.ore[target] < 0 or int(Data.ORES[Data.ORE_KEYS[belt.ore[target]]]["unlock"]) <= int(State.up["laser"]) + 1
 		end = belt.rock_pos(target) - (belt.rock_pos(target) - origin).normalized() * belt.radius[target] * 0.85
-		belt.set_spot_heat(0, end, 1.0 if can_cut else 0.35, belt.radius[target] * 0.45)   # the beam cooks the stone where it lands
 		if can_cut:
 			laser_on = true
 			var rate: float = State.stat("laser")["rate"] * oc
@@ -1585,6 +1740,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 			if belt.hp[target] <= 0.0:
 				_break(target)
 				target = -1
+	_tick_spot(dt, laser_on and target >= 0, end)
 	# the beam: a thin cylinder from the dish's focus to wherever the ray ends, in scene space
 	var a: Vector3 = (_focus as Node3D).global_position if _focus is Node3D else position + fwd * 20.0
 	var b: Vector3 = end - main.world_offset

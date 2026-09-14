@@ -625,6 +625,7 @@ func _smoke_step() -> void:
 				ship.throttle = 0.0
 				ship.update_camera(1.0)
 				belt.hp[_smoke_rock] = 45.0   # nearly cut through already, so the run also sees it break and the ore come aboard
+				ship.spot_heat = 0.8   # as if the beam had been on it a while (a new rock keeps half): hot enough to scorch and light the stone
 				# a rail rock nearby to watch drifting: 28 u/s along its orbit
 				_smoke_rail = -1
 				for n in range(1, 200):
@@ -640,7 +641,7 @@ func _smoke_step() -> void:
 		"mining":
 			if _phase_frame == 60:
 				_shot("smoke_mine")
-				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f · lod0 rocks %d (target r=%.0f at %.0f) · sparks %d" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock], belt.lod0_count(), belt.radius[_smoke_rock], belt.rock_pos(_smoke_rock).distance_to(ship.true_pos()), sparks.count()])
+				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f · lod0 rocks %d (target r=%.0f at %.0f) · sparks %d · spot heat %.2f · scorches %d" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock], belt.lod0_count(), belt.radius[_smoke_rock], belt.rock_pos(_smoke_rock).distance_to(ship.true_pos()), sparks.count(), ship.spot_heat, belt.burn_count()])
 				print("smoke: laser loops %s" % str(Audio.loop_state()))
 			if _phase_frame == 100:
 				ship.throttle = 0.6   # a burst of throttle so the engine loops can be read
@@ -658,7 +659,7 @@ func _smoke_step() -> void:
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
-				print("smoke: fx · sparks %d · scrap %d · lod0 rocks %d · near rocks %d" % [sparks.count(), belt.scrap_count(), belt.lod0_count(), ship.near_rocks.size()])
+				print("smoke: fx · sparks %d · scrap %d · lod0 rocks %d · near rocks %d · spot heat %.2f · scorches %d · fittings %s" % [sparks.count(), belt.scrap_count(), belt.lod0_count(), ship.near_rocks.size(), ship.spot_heat, belt.burn_count(), ship.variant_report()])
 				var fld: Dictionary = belt.field_at(ship.true_pos())
 				var nf: Dictionary = belt.nearest_field(ship.true_pos())
 				print("smoke: fields %d · in %s · nearest %s at %.0f · dish aim yaw=%.2f pitch=%.2f aimed=%s" % [belt._fields.size(), str(fld.get("name", "-")), str(nf.get("name", "-")), float(nf.get("edge", 0.0)), ship.aim_yaw, ship.aim_pitch, str(ship.aimed)])
@@ -723,6 +724,14 @@ func _smoke_step() -> void:
 				var hs: Array = get_tree().get_nodes_in_group("inv_hold")
 				if st.size() > 0 and hs.size() > 0:
 					hs[0]._drop_data(Vector2.ZERO, {"k": st[0].k, "u": min(st[0].u, 10.0), "store": true})   # a small stack to throw away
+			if _phase_frame == 118:
+				# the fittings follow the refit tiers: a level-2 laser shows the second barrel, then back
+				var was: int = State.up["laser"]
+				State.up["laser"] = 2
+				ship.configure_model()
+				print("smoke: fittings at laser Lv3 · %s" % ship.variant_report())
+				State.up["laser"] = was
+				ship.configure_model()
 			if _phase_frame == 120:
 				_shot("smoke_inventory")
 				var hs: Array = get_tree().get_nodes_in_group("inv_hold").filter(func(s): return not s.is_empty())

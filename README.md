@@ -13,6 +13,17 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 16 — the beam's heat, scorches, and the fitting variants
+
+| Piece | Where | Status |
+|---|---|---|
+| The beam's spot heat: 30 s on a rock to white heat, cooling over 10 s once off it, half left behind on a change of rock; the stone's surface glow widens with it, a glowing spot and a light sit where the beam lands, and a shower of sparks streams off the surface, more and hotter as it heats | `scripts/ship.gd` (`_tick_spot`), `scripts/sparks.gd` (`emit`) | ported from heatFx / SPARKS.emit |
+| The burn trail: once the spot is hot, a scorch decal is stamped where the beam is every 0.1 s, laid on the surface facing the rock's centre, up to 64 a rock, gone when the rock breaks | `scripts/belt.gd` (`scorch`) | ported from addBurn as Godot Decals on a per-rock holder |
+| The ship's fitting variants: three tiers of laser barrel, cargo pod, engine nacelle and scanner dish, shown by refit level (tier = 1 + round(2 · level / top level)); they live in the model's second glTF scene, which the scene importer leaves out, so they are read from the glTF document at run time | `scripts/ship.gd` (`_load_variants`, `configure_model`) | ported from the assembler's configure() |
+
+Not ported: the wing choices and hull/accent paint (the browser's customisation, which the port has no menu for; the
+delta wings stay).
+
 ## Milestone 15 — the curved hull, the radar pulse, exhaust and navigation lights
 
 | Piece | Where | Status |

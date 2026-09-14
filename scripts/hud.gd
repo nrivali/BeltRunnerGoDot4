@@ -879,6 +879,8 @@ func _buy(key: String) -> void:
 	toast(r["msg"], not r["ok"])
 	if r["ok"]:
 		Audio.sfx("chime")
+		if _ship:
+			_ship.configure_model()   # the fitting on the hull changes with its tier
 	refresh_panel()
 
 

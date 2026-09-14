@@ -359,6 +359,10 @@ func clear() -> void:
 		n.queue_free()
 	_lod0_nodes = {}
 	_lod0_free = {}
+	for n in _burn_nodes.values():
+		n.queue_free()
+	_burn_nodes = {}
+	_burn_last = {}
 	while _scrap_pos.size() > 0:
 		_drop_scrap(0)
 	_scrap_high = 0
@@ -748,6 +752,7 @@ func add_fragment(c: int, r: float, ore_i: int, barren: bool, p: Vector3, amt: f
 func tick(dt: float, near_ids: PackedInt32Array = PackedInt32Array()) -> void:
 	_tick_scrap(dt, near_ids)
 	_tick_pairs()
+	_tick_burns()
 	_elapsed = State.time - _t0
 	for m in _mats:
 		m.set_shader_parameter("u_time", _elapsed)
@@ -1054,6 +1059,97 @@ func set_spot_heat(idx: int, at: Vector3, amount: float, radius: float) -> void:
 	_heat_src[idx] = at
 	_heat_amt[idx] = amount
 	_heat_rad[idx] = radius
+
+
+# ---- the burn trail (addBurn): every spot the laser cooks leaves a scorch on the rock for good, a flat dark decal laid
+# on the surface where the beam is; one rock keeps up to 64, the oldest going first
+const BURN_MAX := 64
+var _burn_nodes := {}    # rock id -> Node3D holding its Decals, placed at the rock each frame
+var _burn_last := {}     # rock id -> [local point, size] of the last stamp
+static var _burn_tex: ImageTexture
+
+
+static func _burn_texture() -> ImageTexture:
+	if _burn_tex:
+		return _burn_tex
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var d: float = Vector2(x - 31.5, y - 31.5).length() / 32.0
+			var c: Color
+			if d < 0.45:
+				c = Color(12 / 255.0, 7 / 255.0, 4 / 255.0, 0.95).lerp(Color(28 / 255.0, 14 / 255.0, 8 / 255.0, 0.75), d / 0.45)
+			elif d < 0.8:
+				c = Color(28 / 255.0, 14 / 255.0, 8 / 255.0, 0.75).lerp(Color(40 / 255.0, 22 / 255.0, 12 / 255.0, 0.25), (d - 0.45) / 0.35)
+			else:
+				c = Color(40 / 255.0, 22 / 255.0, 12 / 255.0, 0.25).lerp(Color(40 / 255.0, 22 / 255.0, 12 / 255.0, 0.0), clampf((d - 0.8) / 0.2, 0.0, 1.0))
+			img.set_pixel(x, y, c)
+	for k in 40:
+		var x := 8 + randi() % 48
+		var y := 8 + randi() % 48
+		var a: float = randf() * 0.35
+		for dx in 2:
+			for dy in 2:
+				var px := img.get_pixel(x + dx, y + dy)
+				img.set_pixel(x + dx, y + dy, px.blend(Color(60 / 255.0, 30 / 255.0, 14 / 255.0, a)))
+	_burn_tex = ImageTexture.create_from_image(img)
+	return _burn_tex
+
+
+func scorch(i: int, world_hit: Vector3, size: float) -> void:
+	if i < 0 or i >= count or alive[i] == 0:
+		return
+	var centre := rock_pos(i)
+	var local: Vector3 = world_hit - centre
+	if local.length_squared() < 1e-6:
+		return
+	var n := local.normalized()
+	var last: Array = _burn_last.get(i, [])
+	if last.size() == 2 and (last[0] as Vector3).distance_to(local) < size * 0.4 and absf(float(last[1]) - size) < size * 0.3:
+		return   # no need to restamp the same spot
+	var holder: Node3D = _burn_nodes.get(i)
+	if holder == null:
+		holder = Node3D.new()
+		holder.position = centre - _offset
+		add_child(holder)
+		_burn_nodes[i] = holder
+	var d := Decal.new()
+	d.texture_albedo = _burn_texture()
+	d.size = Vector3(size * 2.0, size * 1.6, size * 2.0)
+	d.albedo_mix = 1.0
+	d.cull_mask = 0xFFFFF
+	d.upper_fade = 0.6
+	d.lower_fade = 0.6
+	# the decal projects down its own -Y: point that at the rock's centre, with a random turn about it
+	var ax: Vector3 = Vector3.RIGHT if absf(n.x) < 0.9 else Vector3.UP
+	var t1: Vector3 = n.cross(ax).normalized()
+	var t2: Vector3 = n.cross(t1).normalized()
+	var rot := randf() * TAU
+	var e1: Vector3 = (t1 * cos(rot) + t2 * sin(rot)).normalized()
+	var e2: Vector3 = n.cross(e1).normalized()
+	d.transform = Transform3D(Basis(e1, n, e2), local + n * 0.8)
+	holder.add_child(d)
+	if holder.get_child_count() > BURN_MAX:
+		holder.get_child(0).queue_free()
+	_burn_last[i] = [local, size]
+
+
+func burn_count() -> int:
+	var n := 0
+	for h in _burn_nodes.values():
+		n += h.get_child_count()
+	return n
+
+
+func _tick_burns() -> void:
+	for i in _burn_nodes.keys():
+		var h: Node3D = _burn_nodes[i]
+		if alive[i] == 0:
+			h.queue_free()
+			_burn_nodes.erase(i)
+			_burn_last.erase(i)
+			continue
+		h.position = rock_pos(i) - _offset
 
 
 # ---- LOD 0 up close: a rock near the ship leaves its chunk's MultiMesh for its own node with the finest mesh

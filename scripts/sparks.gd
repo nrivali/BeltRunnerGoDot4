@@ -53,6 +53,30 @@ func burst(p: Vector3, count: int, spd: float, c: Color, sz: float) -> void:
 		_size.append(randf_range(1.4, 3.2) * sz)
 
 
+## emit: a shower of streaks thrown off a surface point away from the rock while the beam cuts, more and hotter as the
+## spot heats: dull orange when cold, yellow-white when hot, with the odd slower, longer-lived ember.
+var _acc := 0.0
+
+
+func emit(p: Vector3, nrm: Vector3, heat: float, dt: float) -> void:
+	_acc += dt * (75.0 + 350.0 * heat)
+	while _acc >= 1.0:
+		_acc -= 1.0
+		if _pos.size() >= MAX:
+			_drop(0)
+		var ember: bool = randf() < 0.125
+		var d := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized() * randf_range(0.3, 1.0) + nrm * randf_range(0.2, 1.1)
+		d = d.normalized() * ((randf_range(50.0, 150.0) if ember else randf_range(140.0, 400.0)) + heat * randf_range(0.0, 320.0))
+		var g: float = 0.32 + 0.48 * heat + randf_range(-0.08, 0.08)
+		var b: float = 0.06 + 0.34 * heat * heat + randf_range(0.0, 0.06)
+		_pos.append(p + Vector3(randf_range(-1.5, 1.5), randf_range(-1.5, 1.5), randf_range(-1.5, 1.5)))
+		_vel.append(d)
+		_col.append(Color(1.0, g, b))
+		_age.append(0.0)
+		_life.append(randf_range(1.0, 1.9) if ember else randf_range(0.45, 1.1))
+		_size.append(randf_range(2.4, 3.8) if ember else randf_range(1.1, 2.1))
+
+
 func _drop(s: int) -> void:
 	_pos.remove_at(s)
 	_vel.remove_at(s)
