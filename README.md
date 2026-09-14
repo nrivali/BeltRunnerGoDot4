@@ -22,7 +22,7 @@ and the custom controls; `scripts/hud.gd` is the layout; `scripts/menu.gd` is th
 | Piece | Where | Status |
 |---|---|---|
 | Chamfered glass panes with cyan corner brackets, segmented glowing gauges, amber chamfered buttons, key chips, glowing mono readings | `scripts/ui.gd` | rebuilt from the CSS (.pane, .bar, .btn, kbd) |
-| Status pane bottom-centre (hull, fuel, big speed, thrust, cargo), readouts top-right (zone, speed, cargo ship, field; laser, range, radar, threat), target pane top-centre (name, size, range, health, warning) | `scripts/hud.gd` | rebuilt to the browser's layout |
+| Status pane bottom-centre (hull, fuel, big speed, thrust, cargo), readouts top-right (zone, speed, cargo ship, field; laser, range, radar), target pane top-centre (name, size, range, health, warning) | `scripts/hud.gd` | rebuilt to the browser's layout |
 | Boresight brackets on the rock under the nose (amber while cutting), the cargo ship's diamond marker with an edge arrow when off screen, radar blips in the ore's colour with name-and-range labels for the nearest four | `scripts/hud.gd`, `scripts/belt.gd` | ported (rocks now carry a radar mark for 25 s) |
 | The hint bar above the status pane (approach control, auto-dock, hold to mine, cutting…), the cargo-full notice, toasts with an amber or red edge, the vignette, the red flash on a hull knock, the version tag | `scripts/hud.gd` | ported |
 | Flight controls list bottom-left with key chips (C hides it, remembered in the save) | `scripts/hud.gd` | rebuilt |
@@ -158,9 +158,12 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: rocks drifting on their orbit rails, rock fragments, raiders, the tow, the Q lock, the drag-and-drop inventory
-grid, a menu and settings (sound volume). The game logic for those exists in the HTML and ports the same way. The
-browser's ambience beats were removed from the game by the user, so there are none.
+Not yet: rocks drifting on their orbit rails, rock fragments, the tow, the Q lock. The game logic for those exists in
+the HTML and ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
+
+Scrapped, not just unported: the raiders (the browser's pirates, mines, threat readout and zone danger ratings). The
+user dropped the concept on 2026-09-13, so the port carries no threat readout, no danger rating on the nav map, and
+the tutorial's departure line no longer mentions them (re-recorded).
 
 ## Conventions
 

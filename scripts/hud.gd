@@ -1321,7 +1321,7 @@ func _refresh_map() -> void:
 	_zinfo.add_child(Ui.para(str(sel["tag"]), 13, Ui.MUTED))
 	var dist := "here" if is_cur else "%s ly" % str(Data.zone_ly(cur, sel))
 	if sel["hub"]:
-		_zinfo.add_child(_kv_grid([["Distance", dist], ["Colony", str(sel["colony"])], ["Market", "buys every ore · exotics +%d%%" % roundi((Data.EXPORT_BONUS - 1.0) * 100.0)], ["Fuel", "cargo ship resupplies here · %s cr/u" % str(Data.CARGO_FUEL_PRICE)], ["Danger", "none · colony patrols"]]))
+		_zinfo.add_child(_kv_grid([["Distance", dist], ["Colony", str(sel["colony"])], ["Market", "buys every ore · exotics +%d%%" % roundi((Data.EXPORT_BONUS - 1.0) * 100.0)], ["Fuel", "cargo ship resupplies here · %s cr/u" % str(Data.CARGO_FUEL_PRICE)]]))
 		var aboard := floori(State.cargo_total() + State.store_total())
 		var s1 := _vbox(4)
 		s1.add_child(_h3("Aboard to sell"))
@@ -1332,13 +1332,10 @@ func _refresh_map() -> void:
 		s2.add_child(Ui.para("On arrival the cargo ship flies in and takes up station off Meridian Colony, and the market and services open from there. Set a course here to leave.", 12, Ui.MUTED))
 		_zinfo.add_child(s2)
 	else:
-		var danger: float = float(sel.get("danger", 0.5))
-		var dtext := "quiet · light patrols" if danger <= 0.6 else ("patrolled · mines near rich fields" if danger <= 1.1 else ("contested · raider holds" if danger <= 1.6 else "lawless · heavy raider presence"))
-		var dcol: Color = Ui.RED if danger > 1.6 else (Ui.AMBER if danger > 1.1 else Ui.TEXT)
 		var nfields := 0
 		for n in Belt.FIELDS_PER_BELT:
 			nfields += n
-		_zinfo.add_child(_kv_grid([["Distance", dist], ["Market", "none · sell at the Hub"], ["Belts", "%s · %d fields" % ["rich seams" if float(sel.get("amountMult", 1.0)) > 1.2 else ("sparse" if float(sel.get("density", 1.0)) < 1.0 else "typical"), nfields]], ["Danger", "[color=%s]%s[/color]" % [Ui.hex(dcol), dtext]]]))
+		_zinfo.add_child(_kv_grid([["Distance", dist], ["Market", "none · sell at the Hub"], ["Belts", "%s · %d fields" % ["rich seams" if float(sel.get("amountMult", 1.0)) > 1.2 else ("sparse" if float(sel.get("density", 1.0)) < 1.0 else "typical"), nfields]], ["Planet", str(sel["planet"]["name"])]]))
 		var s1 := _vbox(4)
 		s1.add_child(_h3("Asteroid fields"))
 		s1.add_child(Ui.para("%d ore fields and rich pockets across the base belts, and the ring belt above the planet." % nfields, 12, Ui.MUTED))
@@ -1479,7 +1476,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	if ship.overcharge:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
 	var radar := "READY" if ship.radar_cd <= 0.0 else "%.1fs" % ship.radar_cd
-	_row2.text = "[right]%s   %s   %s   %s[/right]" % [_kv("LASER", laser), _kv("RANGE", "%s m" % Data.fm(State.stat("range")["reach"])), _kv("RADAR", radar), _kv("THREAT", "none")]
+	_row2.text = "[right]%s   %s   %s[/right]" % [_kv("LASER", laser), _kv("RANGE", "%s m" % Data.fm(State.stat("range")["reach"])), _kv("RADAR", radar)]
 	# the target
 	var has_target: bool = ship.target >= 0 and belt.alive[ship.target] == 1 and not docked
 	var reach: float = State.stat("range")["reach"]

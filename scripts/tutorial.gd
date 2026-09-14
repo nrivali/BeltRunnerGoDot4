@@ -19,7 +19,7 @@ const STEPS := [
 	{"id": "stow", "title": "Stow the haul", "ring": "deposit", "wait": "move copper into storage", "text": "Press E, or Deposit all, to move your copper into the cargo ship's storage: 50 slots, and it all warps with you. Your hold is for the trip out; the storage is for the haul."},
 	{"id": "refit", "title": "Refits", "ring": "refits", "text": "The services panel lists your refits: laser, engine, tank, cargo, scanner, hull. A bigger hold and a stronger laser pay for themselves fastest. The cargo ship's own upgrades sit below them."},
 	{"id": "hub", "title": "Selling", "ring": "navmap", "text": "Nothing sells out here. Press N for the nav map and warp to the Hub. Meridian Colony buys everything, and it is where the cargo ship refuels and restocks."},
-	{"id": "depart", "title": "Back out", "ring": "depart", "wait": "press Depart", "text": "Press Depart (or W on the pad) to launch. Raiders roam the richer fields, and the laser cuts them too. T calls a tow if you ever run dry."},
+	{"id": "depart", "title": "Back out", "ring": "depart", "wait": "press Depart", "text": "Press Depart (or W on the pad) to launch. The belt is all yours out there: fill the hold and bring it home. Keep an eye on the fuel; the pad tops you up every time you dock."},
 	{"id": "done", "title": "Tutorial complete", "final": true, "text": "That is the loop: fill the hold, stow it, warp to the Hub, sell, refit, repeat. Flight Ops out. Good hunting."},
 ]
 
