@@ -36,6 +36,9 @@ var chunk_of := PackedInt32Array()
 var mm_of := PackedInt32Array()      # index into _mms
 var slot_of := PackedInt32Array()
 var count := 0
+var mark_until := PackedFloat32Array()   # radar marks: State.time until which a rock shows as a blip
+var _marked := PackedInt32Array()        # the rocks the last pulses reached
+const MARK_TIME := 25.0
 
 var _rng := RandomNumberGenerator.new()
 var _chunk_centre: Array = []       # true world centre per chunk
@@ -124,6 +127,8 @@ func clear() -> void:
 	chunk_of = PackedInt32Array()
 	mm_of = PackedInt32Array()
 	slot_of = PackedInt32Array()
+	mark_until = PackedFloat32Array()
+	_marked = PackedInt32Array()
 	count = 0
 
 
@@ -276,6 +281,7 @@ func _make_rock(b: Dictionary, fld) -> void:
 	chunk_of.append(-1)
 	mm_of.append(-1)
 	slot_of.append(-1)
+	mark_until.append(0.0)
 	count += 1
 
 
@@ -432,7 +438,27 @@ func scan(from: Vector3, range: float, only_ore: int = -1) -> Dictionary:
 			if d2 < nd:
 				nd = d2
 				nearest = i
+			if only_ore < 0:
+				if mark_until[i] <= State.time:
+					_marked.append(i)
+				mark_until[i] = State.time + MARK_TIME
 	return {"count": n, "nearest": nearest, "dist": sqrt(nd) if nearest >= 0 else 0.0}
+
+
+## The rocks still carrying a radar mark, nearest first, as [id, distance, seconds left]; expired ones drop off the list.
+func marked(now: float, from: Vector3, max_n: int) -> Array:
+	var keep := PackedInt32Array()
+	var out: Array = []
+	for i in _marked:
+		if alive[i] == 0 or mark_until[i] <= now:
+			continue
+		keep.append(i)
+		out.append([i, pos[i].distance_to(from), mark_until[i] - now])
+	_marked = keep
+	out.sort_custom(func(a, b): return a[1] < b[1])
+	if out.size() > max_n:
+		out.resize(max_n)
+	return out
 
 
 func damage(i: int, dmg: float) -> void:

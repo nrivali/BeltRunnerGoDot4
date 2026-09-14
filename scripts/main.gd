@@ -23,6 +23,9 @@ var _dish_toast_t := -100.0
 var sun: DirectionalLight3D
 var env: Environment
 var lighting: Lighting
+var menu: Menu
+var started := false   # the pilot has left the start menu
+var paused := false    # the pause menu is up: the world holds still, the HUD stays
 var _cull_t := 0.0
 var _save_t := 0.0
 
@@ -71,8 +74,122 @@ func _ready() -> void:
 	load_zone(start)
 	spawn_in_zone(false)
 	ship.update_camera(1.0)
-	hud.toast("Welcome aboard · W launches. In flight: mouse steers, W throttle, hold the left button to cut, R radar, E near the cargo ship to dock. N opens the nav map.", false)
 	print("belt: %d rocks in %d chunks, built in %d ms" % [belt.count, belt._mms.size(), Time.get_ticks_msec() - t0])
+	# the menu, on its own layer above the HUD; the world is built and drawn behind it
+	var ml := CanvasLayer.new()
+	ml.layer = 10
+	add_child(ml)
+	menu = Menu.new()
+	menu.name = "Menu"
+	ml.add_child(menu)
+	menu.start_requested.connect(_start_game)
+	menu.resume_requested.connect(_resume)
+	menu.new_game_requested.connect(_new_game)
+	menu.wipe_requested.connect(wipe_save)
+	menu.tutorial_restart.connect(func(): tutorial.restart())
+	menu.setting_changed.connect(_setting_changed)
+	menu.quit_requested.connect(_quit)
+	get_window().content_scale_factor = float(State.settings.get("hud", 1.0))
+	if _smoke:
+		_start_game()
+	else:
+		paused = true
+		menu.open(false, State.has_save)
+
+
+# ---- start, pause, resume, new game (the browser's startGame / pauseGame / resumeGame / newGame / resetSave)
+func _start_game() -> void:
+	started = true
+	paused = false
+	menu.close()
+	hud.started = true
+	hud.tutorial_hidden(false)
+	State.save_game()
+	if not _smoke:
+		hud.toast("Welcome aboard · W launches. In flight: mouse steers, W throttle, hold the left button to cut, R radar, E near the cargo ship to dock.", false)
+
+
+func _pause() -> void:
+	if not started or paused:
+		return
+	paused = true
+	State.save_game()
+	hud.tutorial_hidden(true)
+	menu.open(true, true)
+
+
+func _resume() -> void:
+	if not paused:
+		return
+	paused = false
+	menu.close()
+	hud.tutorial_hidden(false)
+
+
+## Escape: the pause menu comes down first, then whatever panel is open, then the pause menu goes up.
+func _escape() -> void:
+	if paused and started:
+		_resume()
+		return
+	if paused:
+		return
+	if hud.inv_open:
+		hud.toggle_inventory()
+		return
+	if hud.map_open:
+		hud.close_map()
+		return
+	if ship.docked and hud.services_visible:
+		hud.toggle_services()
+		return
+	if ship.cut.is_empty() and ship.warp.is_empty():
+		_pause()
+
+
+func _fresh_start() -> void:
+	State.reset()
+	tutorial.restart()
+	ship.cut = {}
+	ship.warp = {}
+	ship.vel = Vector3.ZERO
+	ship.throttle = 0.0
+	if hud.inv_open:
+		hud.toggle_inventory()
+	hud.close_map()
+	load_zone(Data.ZONE_KESSLER)
+	spawn_in_zone(false)
+	ship.update_camera(1.0)
+
+
+func _new_game() -> void:
+	_fresh_start()
+	_start_game()
+
+
+## Wipe the save (Settings, or the services panel's Reset save): a fresh pilot, back at the start menu.
+func wipe_save() -> void:
+	_fresh_start()
+	started = false
+	paused = true
+	hud.started = false
+	hud.tutorial_hidden(true)
+	menu.open(false, false)
+
+
+func _setting_changed(key: String, value: Variant) -> void:
+	State.settings[key] = value
+	match key:
+		"hud":
+			get_window().content_scale_factor = float(value)
+		"sound", "volume":
+			Audio.apply_settings()
+	State.save_game()
+
+
+func _quit() -> void:
+	if started:
+		State.save_game()
+	get_tree().quit()
 
 
 func _setup_inputs() -> void:
@@ -98,7 +215,7 @@ func _setup_inputs() -> void:
 	_key("torch", KEY_F)
 	_key("tut_next", KEY_ENTER)
 	_key("quicksave", KEY_F5)
-	_key("quit", KEY_ESCAPE)
+	_key("menu", KEY_ESCAPE)
 
 
 func _key(action: String, key: Key) -> void:
@@ -266,9 +383,15 @@ func break_rock(i: int, by_dish: bool) -> void:
 
 
 func _process(dt: float) -> void:
-	if Input.is_action_just_pressed("quit"):
-		State.save_game()
-		get_tree().quit()
+	if Input.is_action_just_pressed("menu"):
+		_escape()
+	if not started or paused:
+		hud.update(ship, belt, carrier)
+		if _smoke:
+			_smoke_step()   # the run drives the pause menu too
+		return
+	if Input.is_action_just_pressed("torch") and ship.docked:
+		hud.toggle_services()
 	if Input.is_action_just_pressed("quicksave"):
 		State.save_game()
 		hud.toast("Saved", false)
@@ -461,9 +584,13 @@ func _smoke_step() -> void:
 				var lp := carrier.to_local_true(ship.true_pos())
 				print("smoke: on the pad · local=(%.0f, %.0f, %.0f) park=%s" % [lp.x, lp.y, lp.z, str(CargoShip.park_local(ship.dock_side))])
 				_shot("smoke_pad")
+				hud.toggle_inventory()   # the inventory beside the services panel: both grids
+			if _phase_frame == 120:
+				_shot("smoke_inventory")
+				hud.toggle_inventory()
 			if _phase_frame % 600 == 0:
 				print("smoke: waiting on the drone · %s · stowed %.0f" % [str(drones.stats()), State.drone_units])
-			if _phase_frame > 90 and (State.drone_units > 0.5 or _phase_frame > 6000):
+			if _phase_frame > 130 and (State.drone_units > 0.5 or _phase_frame > 6000):
 				print("smoke: drone run %s · stowed by drones %.0f · store gold %.0f" % ["done" if State.drone_units > 0.5 else "TIMED OUT", State.drone_units, State.store["gold"]])
 				ship.start_departure()
 				_next("depart")
@@ -507,6 +634,21 @@ func _smoke_step() -> void:
 		"selling":
 			if _phase_frame == 60:
 				_shot("smoke_market")
+				hud.open_map()
+			if _phase_frame == 90:
+				_shot("smoke_map")
+				hud.close_map()
+				_pause()   # the pause menu over the frozen game, then its settings and controls pages
+			if _phase_frame == 120:
+				_shot("smoke_menu")
+				menu._show_page("settings")
+			if _phase_frame == 140:
+				_shot("smoke_settings")
+				menu._show_page("controls")
+			if _phase_frame == 160:
+				_shot("smoke_controls")
+				_resume()
+			if _phase_frame == 180:
 				ship.start_warp(Data.ZONE_KESSLER)
 				print("smoke: warp home requested · warp=%s" % str(not ship.warp.is_empty()))
 				_next("home")

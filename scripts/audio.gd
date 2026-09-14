@@ -44,6 +44,14 @@ func _ready() -> void:
 		add_child(p)
 		_pool.append(p)
 	_start_loops()
+	apply_settings()
+
+
+## The menu's sound switch and volume, on the Master bus.
+func apply_settings() -> void:
+	var s: Dictionary = State.settings
+	AudioServer.set_bus_mute(0, not bool(s.get("sound", true)))
+	AudioServer.set_bus_volume_db(0, linear_to_db(clampf(float(s.get("volume", 1.0)), 0.0001, 1.0)))
 
 
 func _start_loops() -> void:

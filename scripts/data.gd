@@ -51,6 +51,7 @@ const ORES := {
 }
 const ORE_KEYS := ["iron", "copper", "gold", "platinum", "crystal", "cobalt", "beryl"]
 const EXPORT_BONUS := 1.5
+const VERSION := "0.9.120-godot"   # the browser build this port follows, tagged as the port
 
 const UPGRADES := {
 	"laser":      {"name": "Mining laser",     "levels": [{"rate": 3}, {"rate": 5}, {"rate": 8}, {"rate": 12}, {"rate": 18}], "costs": [350, 1400, 5000, 16000]},
@@ -102,7 +103,7 @@ const RING_BELT := {"name": "Ring belt", "rMin": 900000.0, "rMax": 950000.0, "co
 	"ores": {"iron": 0.48, "copper": 0.3, "gold": 0.12, "platinum": 0.06, "crystal": 0.04}}
 
 const ZONE_KESSLER := {
-	"id": "kessler", "name": "Kessler Belt", "hub": false, "map": Vector2(46, 34), "danger": 0.5,
+	"id": "kessler", "name": "Kessler Belt", "hub": false, "map": Vector2(46, 34), "danger": 0.5, "accent": Color("#F2A33A"),
 	"tag": "The home belt. Picked over, safe, and never far from a refuel.",
 	"density": 5.0, "amountMult": 1.0,
 	"belts": [
@@ -115,7 +116,7 @@ const ZONE_KESSLER := {
 }
 ## The Hub: Meridian Colony at the origin, no belts and no central gravity; the homeworld hangs below the colony lanes.
 const ZONE_HUB := {
-	"id": "hub", "name": "The Hub", "hub": true, "colony": "Meridian Colony", "map": Vector2(50, 57), "danger": 0.0,
+	"id": "hub", "name": "The Hub", "hub": true, "colony": "Meridian Colony", "map": Vector2(50, 57), "danger": 0.0, "accent": Color("#6BD69A"),
 	"tag": "Meridian Colony above a blue ocean world. Green continents, white clouds, and familiar lights on the night side: a home to return to, with safe lanes and the sector's ore market.",
 	"density": 0.0, "amountMult": 1.0,
 	"belts": [{}, {}, {}],

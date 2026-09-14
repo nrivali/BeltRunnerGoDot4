@@ -23,6 +23,8 @@ var tut := 0              # tutorial step; -1 once finished or skipped
 var mined := 0.0
 var earned := 0.0
 var time := 0.0
+var settings := {"sound": true, "volume": 1.0, "hud": 1.0, "controls": true}   # the menu's settings, saved with the game
+var has_save := false
 
 
 func _ready() -> void:
@@ -257,7 +259,8 @@ func save_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "droneUnits": drone_units, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "tut": tut, "mined": mined, "earned": earned, "time": time}))
+	f.store_string(JSON.stringify({"credits": credits, "cargo": cargo, "store": store, "fuel": fuel, "hull": hull, "up": up, "depot": depot, "droneUnits": drone_units, "shipFuel": ship_fuel, "parts": parts, "market": market, "zone": zone_id, "tut": tut, "mined": mined, "earned": earned, "time": time, "settings": settings}))
+	has_save = true
 
 
 func load_game() -> bool:
@@ -294,4 +297,89 @@ func load_game() -> bool:
 	for k in depot:
 		depot[k] = clampi(int(d.get(k, 0)), 0, Data.DEPOT_UPGRADES[k]["costs"].size())
 	drone_units = float(s.get("droneUnits", 0.0))
+	var sg = s.get("settings", {})
+	if typeof(sg) == TYPE_DICTIONARY:
+		for k in settings:
+			if sg.has(k):
+				settings[k] = sg[k]
+	has_save = true
 	return true
+
+
+## A fresh pilot: the browser's resetSave. The settings survive; the save file goes.
+func reset() -> void:
+	credits = 60.0
+	fuel = 100.0
+	hull = 100.0
+	for k in Data.ORE_KEYS:
+		cargo[k] = 0.0
+		store[k] = 0.0
+		market[k] = 1.0
+		market_next[k] = 1.0
+	for k in up:
+		up[k] = 0
+	for k in depot:
+		depot[k] = 0
+	drone_units = 0.0
+	ship_fuel = 1200.0
+	parts = 120.0
+	market_t = 0.0
+	zone_id = "kessler"
+	tut = 0
+	mined = 0.0
+	earned = 0.0
+	time = 0.0
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
+	has_save = false
+
+
+# ---- stacks: the inventory grid's view of a bag (hold or storage), most valuable ore first, full stacks then the rest
+func stacks(bag: Dictionary) -> Array:
+	var keys: Array = []
+	for k in Data.ORE_KEYS:
+		if bag[k] > 0.5:
+			keys.append(k)
+	keys.sort_custom(func(a, b): return price(a) > price(b))
+	var out: Array = []
+	for k in keys:
+		var left: float = bag[k]
+		while left > 0.5:
+			var u: float = min(Data.STACK, left)
+			out.append({"k": k, "u": u})
+			left -= u
+	return out
+
+
+## Drop one stack of `k` (up to `units`) into space. Returns the units dropped.
+func jettison(k: String, units: float) -> float:
+	var u: float = min(units, cargo[k])
+	cargo[k] -= u
+	if cargo[k] < 0.01:
+		cargo[k] = 0.0
+	save_game()
+	return u
+
+
+## One stack of `k` from the hold into the storage, as far as it fits. Returns the units moved.
+func stow_stack(k: String, units: float) -> float:
+	var u: float = min(units, cargo[k], store_room(k))
+	if u < 0.01:
+		return 0.0
+	cargo[k] -= u
+	store[k] += u
+	if cargo[k] < 0.01:
+		cargo[k] = 0.0
+	return u
+
+
+## One stack of `k` from the storage back into the hold, as far as it fits. Returns the units moved.
+func take_stack(k: String, units: float) -> float:
+	var u: float = min(units, store[k], cargo_room(k))
+	if u < 0.01:
+		return 0.0
+	store[k] -= u
+	cargo[k] += u
+	if store[k] < 0.01:
+		store[k] = 0.0
+	return u

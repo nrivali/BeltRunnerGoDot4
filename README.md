@@ -9,8 +9,29 @@ touched by the port. Open it with Godot 4.3 or newer (Project Manager → Import
 Runs on Godot 4.7.2. `godot --path . -- --smoke` is the unattended check through the whole loop: it starts docked,
 launches, parks the ship at the nearest copper rock and cuts it through, flies back and asks approach control for a
 docking, deposits the hold, departs, docks again, jumps to the Hub, arrives on station, sells everything, refuels and
-restocks, jumps home onto the pad and quits, printing what happened at each stage and saving eleven screenshots
-(`smoke_launch` … `smoke_home`) under `user://` (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
+restocks, jumps home onto the pad and quits, printing what happened at each stage and saving fifteen screenshots
+(`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
+(`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
+
+## Milestone 9 — the HUD and the menus
+
+The browser HUD's stylesheet, rebuilt in Godot: `scripts/ui.gd` holds the palette, the three type families the browser
+loads from Google Fonts (Chakra Petch, IBM Plex Sans, IBM Plex Mono, bundled under `assets/fonts`, Open Font Licence)
+and the custom controls; `scripts/hud.gd` is the layout; `scripts/menu.gd` is the start and pause menu.
+
+| Piece | Where | Status |
+|---|---|---|
+| Chamfered glass panes with cyan corner brackets, segmented glowing gauges, amber chamfered buttons, key chips, glowing mono readings | `scripts/ui.gd` | rebuilt from the CSS (.pane, .bar, .btn, kbd) |
+| Status pane bottom-centre (hull, fuel, big speed, thrust, cargo), readouts top-right (zone, speed, cargo ship, field; laser, range, radar, threat), target pane top-centre (name, size, range, health, warning) | `scripts/hud.gd` | rebuilt to the browser's layout |
+| Boresight brackets on the rock under the nose (amber while cutting), the cargo ship's diamond marker with an edge arrow when off screen, radar blips in the ore's colour with name-and-range labels for the nearest four | `scripts/hud.gd`, `scripts/belt.gd` | ported (rocks now carry a radar mark for 25 s) |
+| The hint bar above the status pane (approach control, auto-dock, hold to mine, cutting…), the cargo-full notice, toasts with an amber or red edge, the vignette, the red flash on a hull knock, the version tag | `scripts/hud.gd` | ported |
+| Flight controls list bottom-left with key chips (C hides it, remembered in the save) | `scripts/hud.gd` | rebuilt |
+| Cargo ship services: a glass side panel on the right with balance, gauges, the market table at the Hub, the hold, refit rows with level pips and price buttons, Depart / Warp to the Hub / Hide (F) and Reset save | `scripts/hud.gd` | rebuilt to #station |
+| Inventory: a glass side panel on the left with credits, the hold's slot grid (ore colour along the top, ✕ jettisons) and the storage grid while docked (click a stack to move it) | `scripts/hud.gd`, `scripts/game_state.gd` | rebuilt to #inv (click instead of drag and drop) |
+| Nav computer: the chart drawn as the browser's SVG (grid, dashed lanes with distances, zone nodes), the picked zone's details and the warp button | `scripts/hud.gd` (`Ui.Chart`) | rebuilt |
+| Start menu at launch, pause menu on Escape: Continue / Resume, New game (click twice to wipe), Controls, Settings (sound, volume, HUD size, tutorial restart, wipe save), Quit | `scripts/menu.gd`, `scripts/main.gd` | rebuilt to #intro; settings saved with the game |
+
+The smoke run now also captures the inventory, the nav map and the three menu pages (fifteen screenshots).
 
 ## Milestone 8 — lighting
 
@@ -148,4 +169,5 @@ browser's ambience beats were removed from the game by the user, so there are no
 Mouse steers (cursor off centre yaws and pitches) · W / S throttle · X cut · A / D roll · Shift afterburner (needs the
 refit) · LMB / Space / L mining laser · G laser overcharge (needs the refit) · R radar pulse · F flashlight · E within 2,250 m of the
 cargo ship: approach control docks you (or fly slowly into either hangar mouth) · on the pad: E deposits the hold, W
-departs · Space skips an approach · F5 quick-save · Esc quit.
+departs, F hides the services · Tab / I inventory · N nav map · C hides the controls list · Space skips an approach ·
+F5 quick-save · Esc pause menu (settings, controls, quit).
