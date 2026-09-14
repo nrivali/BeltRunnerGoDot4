@@ -647,7 +647,7 @@ func _smoke_step() -> void:
 		"mining":
 			if _phase_frame == 60:
 				_shot("smoke_mine")
-				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f · lod0 rocks %d (target r=%.0f at %.0f) · sparks %d · spot heat %.2f · scorches %d" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock], belt.lod0_count(), belt.radius[_smoke_rock], belt.rock_pos(_smoke_rock).distance_to(ship.true_pos()), sparks.count(), ship.spot_heat, belt.burn_count()])
+				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f · lod0 rocks %d (target r=%.0f at %.0f) · sparks %d · spot heat %.2f · scorches %d · drift %.0f u · lod0 bounds %s" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock], belt.lod0_count(), belt.radius[_smoke_rock], belt.rock_pos(_smoke_rock).distance_to(ship.true_pos()), sparks.count(), ship.spot_heat, belt.burn_count(), belt.rock_pos(_smoke_rock).distance_to(belt.pos[_smoke_rock]), str(belt._lod0_nodes[_smoke_rock].custom_aabb) if belt._lod0_nodes.has(_smoke_rock) else "none"])
 				print("smoke: laser loops %s" % str(Audio.loop_state()))
 			if _phase_frame == 100:
 				ship.throttle = 0.6   # a burst of throttle so the engine loops can be read
@@ -657,6 +657,12 @@ func _smoke_step() -> void:
 				var moved: float = belt.rock_pos(_smoke_rail).distance_to(_smoke_rail_p)
 				var secs: float = State.time - _smoke_rail_t
 				print("smoke: rails · rock %d drifted %.1f u in %.2f s (%.1f u/s) · free rocks %d" % [_smoke_rail, moved, secs, moved / max(0.01, secs), belt._free_ids.size()])
+				# a rail rock promoted to LOD 0 after it has drifted: its node must carry bounds that cover the drift
+				belt._promote(_smoke_rail)
+				var l0n: MultiMeshInstance3D = belt._lod0_nodes.get(_smoke_rail)
+				var l0d: Vector3 = belt.rock_pos(_smoke_rail) - belt.pos[_smoke_rail]
+				print("smoke: lod0 bounds · rock %d r=%.0f drifted %.0f u from its build spot · node %s · bounds hold the drift: %s (mesh-only bounds would: %s)" % [_smoke_rail, belt.radius[_smoke_rail], l0d.length(), "made" if l0n else "missing", str(l0n.custom_aabb.has_point(l0d)) if l0n else "-", str(l0d.length() < belt.radius[_smoke_rail])])
+				belt._demote(_smoke_rail)
 				var hc: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 1200.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
 				var hc2: Dictionary = carrier.hull_contact(Vector3(0.0, 0.0, 300.0), Data.SHIP_R) if not carrier._hull.is_empty() else {}
 				print("smoke: hull profile %s · point 1,200 off the flank: %s · point 300 in (outside the passage rule): %s" % ["loaded" if not carrier._hull.is_empty() else "missing", "clear" if hc.is_empty() else "contact n=%s" % str((hc["n"] as Vector3).snapped(Vector3.ONE * 0.01)), "clear" if hc2.is_empty() else "contact"])

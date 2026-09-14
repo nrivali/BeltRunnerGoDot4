@@ -1169,9 +1169,18 @@ func _promote(i: int) -> void:
 	var n := MultiMeshInstance3D.new()
 	n.multimesh = mm
 	n.position = pos[i] - _offset   # the build position: the rail drift is added by the shader, as in the chunk
+	_lod0_bounds(i, n)
 	add_child(n)
 	_lod0_nodes[i] = n
 	_write_custom(i)
+
+
+## The node sits at the build position while the shader draws the rock where its rail has carried it, so its bounds
+## must follow the drift or the renderer culls it (the rock vanished as the ship came close).
+func _lod0_bounds(i: int, n: MultiMeshInstance3D) -> void:
+	var d: Vector3 = rock_pos(i) - pos[i]
+	var r: float = radius[i] * 2.0 + ORBIT_SPEED * 2.0
+	n.custom_aabb = AABB(d - Vector3.ONE * r, Vector3.ONE * r * 2.0)
 
 
 func _demote(i: int) -> void:
@@ -1212,6 +1221,8 @@ func update_lod0(from: Vector3, near_ids: PackedInt32Array) -> void:
 			keep[i] = true
 			if not has:
 				_promote(i)
+			else:
+				_lod0_bounds(i, _lod0_nodes[i])
 	for i in _lod0_nodes.keys():
 		if not keep.has(i):
 			_demote(i)
