@@ -364,32 +364,81 @@ func spawn_pickup(ore: String, units: float, at: Vector3, drift: Vector3) -> Pic
 	return p
 
 
-## A rock breaks (the ship's laser or the cargo ship's dish): its ore comes loose as lumps for the ship or the drones to
-## gather. The dish works on its own, so its breaks are only announced every 20 s or so; your own always are.
+## A rock breaks (the ship's laser or the cargo ship's dish), the HTML's breakRock: big rocks break into smaller
+## mineable rocks (colossal → giants → large → small), a quarter of their ore coming loose at once and the rest riding in
+## the fragments; a small rock's ore all comes loose. The lumps drift with the rock's orbital velocity. The dish works on
+## its own, so its breaks are only announced every 20 s or so; your own always are.
 func break_rock(i: int, by_dish: bool) -> void:
 	var rname := belt.rock_name(i)
 	var ore_i := belt.ore[i]
-	var at: Vector3 = belt.pos[i] - world_offset
+	var c := belt.cls[i]
+	var p: Vector3 = belt.rock_pos(i)
+	var at: Vector3 = p - world_offset
 	var r := belt.radius[i]
-	var loose := belt.kill(i)
-	var near: bool = belt.pos[i].distance_to(ship.true_pos()) < 3000.0
+	var v := belt.rock_vel(i)
+	var bi := belt.belt_of[i]
+	var splits: bool = c > 0
+	var total := belt.kill(i)
+	var loose: float = total * 0.25 if splits else total
+	var near: bool = p.distance_to(ship.true_pos()) < 3000.0
 	if near or not by_dish:
-		Audio.sfx("rock_break", 0.0 if belt.cls[i] > 0 else -4.0)
+		Audio.sfx("rock_break", 0.0 if c > 0 else -4.0)
 	if ore_i >= 0 and loose > 0.0:
 		var k: int = clampi(roundi(loose / 40.0), 1, 8)
 		var ore_key: String = Data.ORE_KEYS[ore_i]
 		for n in k:
 			var dir := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
-			spawn_pickup(ore_key, loose / k, at + dir * r * randf_range(0.1, 0.5), dir * randf_range(20.0, 60.0))
+			spawn_pickup(ore_key, loose / k, at + dir * r * randf_range(0.1, 0.5), v + dir * randf_range(20.0, 60.0))
+	var k := 0
+	if splits:
+		k = _split_rock(c, r, ore_i, total, p, v, bi)
 	var quiet: bool = by_dish and State.time - _dish_toast_t < 20.0
 	if by_dish and not quiet:
 		_dish_toast_t = State.time
 	if not quiet:
 		var who := "Cargo ship dish: " if by_dish else ""
-		if ore_i >= 0 and loose > 0.0:
-			hud.toast("%s%s broken · %d %s loose" % [who, rname, roundi(loose), Data.ORES[Data.ORE_KEYS[ore_i]]["name"]], false)
+		var ore_txt := (" · %d %s loose" % [roundi(loose), Data.ORES[Data.ORE_KEYS[ore_i]]["name"]]) if ore_i >= 0 and loose > 0.0 else ""
+		if splits:
+			hud.toast("%s%s broken into %d %s rocks%s" % [who, rname, k, Belt.CLS_NAME[c - 1].to_lower(), ore_txt], false)
+		elif ore_i >= 0 and loose > 0.0:
+			hud.toast("%s%s broken%s" % [who, rname, ore_txt], false)
 		else:
 			hud.toast("%s%s broken · scrap only" % [who, rname], false)
+
+
+## splitRock: three to five fragments of the next class down, about half of them carrying three quarters of the parent's
+## ore between them (always at least one), the rest plain stone; directions kept some 70 degrees apart so no two start
+## inside each other; each about a third of the parent's radius, starting well out from the centre with a shove apart.
+func _split_rock(c: int, r: float, ore_i: int, total: float, p: Vector3, v: Vector3, bi: int) -> int:
+	var k: int = 3 + randi() % (3 if c == 1 else 2)
+	var carry: Array = []
+	for n in k:
+		carry.append(ore_i >= 0 and randf() < 0.5)
+	if ore_i >= 0 and not carry.has(true):
+		carry[randi() % k] = true
+	var n_carry := carry.count(true)
+	var share: float = total * 0.75 / n_carry if n_carry > 0 else 0.0
+	var dirs: Array = []
+	var tries := 0
+	while dirs.size() < k and tries < 200:
+		tries += 1
+		var d := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
+		var apart := true
+		for o in dirs:
+			if (o as Vector3).dot(d) >= 0.35:
+				apart = false
+				break
+		if apart:
+			dirs.append(d)
+	while dirs.size() < k:
+		dirs.append(Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized())
+	var size0: float = float(belt._belts[bi]["size"][0]) if bi < belt._belts.size() else 16.0
+	for n in k:
+		var fr: float = max(size0 * 0.6, r * pow(0.12 / k, 1.0 / 3.0) * randf_range(0.85, 1.15))
+		var barren: bool = not carry[n] or share < 1.5
+		var d: Vector3 = dirs[n]
+		belt.add_fragment(c - 1, fr, ore_i, barren, p + d * r * randf_range(0.6, 0.85), 0.0 if barren else share * randf_range(0.8, 1.2), v + d * randf_range(30.0, 70.0), bi)
+	return k
 
 
 func _process(dt: float) -> void:
@@ -418,6 +467,7 @@ func _process(dt: float) -> void:
 	if ship.docked and not ship.hold:
 		ship.position += moved
 	ship.tick(dt)
+	belt.tick(dt)   # the rails' drift time for the rock shader, free rocks coasting, broken rocks growing back
 	Audio.engine(ship.throttle, ship.afterburning, ship.braking, ship.docked or not ship.cut.is_empty() or not ship.warp.is_empty())
 	Audio.laser(ship.firing and not ship.docked, ship.laser_on)
 	if ship.warp.is_empty():
@@ -465,6 +515,10 @@ var _frame := 0
 var _phase := "start"
 var _phase_frame := 0
 var _smoke_rock := -1
+var _smoke_rail := -1
+var _smoke_rail_p := Vector3.ZERO
+var _smoke_rail_t := 0.0
+var _smoke_count := 0
 var _tut_last := -1
 var _tut_frames := 0
 
@@ -534,7 +588,8 @@ func _smoke_step() -> void:
 				print("smoke: launched · speed=%.0f throttle=%.2f" % [ship.speed(), ship.throttle])
 				var scan: Dictionary = belt.scan(ship.true_pos(), 200000.0, Data.ORE_KEYS.find("copper"))   # copper: the one ore a level-1 laser cuts
 				_smoke_rock = scan["nearest"]
-				var rp: Vector3 = belt.pos[_smoke_rock] - world_offset
+				belt.set_free(_smoke_rock, Vector3.ZERO)   # a rock knocked off its rail and at rest, so the parked ship keeps the beam on it
+				var rp: Vector3 = belt.rock_pos(_smoke_rock) - world_offset
 				var dir := (rp - ship.position).normalized()
 				ship.position = rp - dir * (belt.radius[_smoke_rock] + 700.0)
 				ship.look_at(rp, Vector3.UP)
@@ -542,6 +597,16 @@ func _smoke_step() -> void:
 				ship.throttle = 0.0
 				ship.update_camera(1.0)
 				belt.hp[_smoke_rock] = 45.0   # nearly cut through already, so the run also sees it break and the ore come aboard
+				# a rail rock nearby to watch drifting: 28 u/s along its orbit
+				_smoke_rail = -1
+				for n in range(1, 200):
+					var j: int = (_smoke_rock + n) % belt.count
+					if belt.alive[j] == 1 and belt.free[j] == 0:
+						_smoke_rail = j
+						break
+				_smoke_rail_p = belt.rock_pos(_smoke_rail)
+				_smoke_rail_t = State.time
+				_smoke_count = belt.count
 				Input.action_press("fire")
 				_next("mining")
 		"mining":
@@ -554,11 +619,18 @@ func _smoke_step() -> void:
 			if _phase_frame == 150:
 				print("smoke: engine loops at throttle %.1f %s" % [ship.throttle, str(Audio.loop_state())])
 				ship.throttle = 0.0
+				var moved: float = belt.rock_pos(_smoke_rail).distance_to(_smoke_rail_p)
+				var secs: float = State.time - _smoke_rail_t
+				print("smoke: rails · rock %d drifted %.1f u in %.2f s (%.1f u/s) · free rocks %d" % [_smoke_rail, moved, secs, moved / max(0.01, secs), belt._free_ids.size()])
 			if _phase_frame == 200 or _phase_frame == 400:
 				print("smoke: dish %s · drones %s · stowed by drones %.0f · pickups %d" % [str(carrier.dish_stats()), str(drones.stats()), State.drone_units, pickups.get_child_count()])
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
+				var frags: Array = []
+				for j in range(_smoke_count, belt.count):
+					frags.append("%s r=%.0f ore=%.0f" % [belt.rock_name(j), belt.radius[j], belt.amount[j]])
+				print("smoke: fragments %d · %s · nodes %d · dead awaiting respawn %d" % [belt.count - _smoke_count, ", ".join(frags), belt._frag_nodes.size(), belt._dead.size()])
 				# back to the carrier with a hold worth depositing: park 3,000 off the nearer mouth and ask approach control for the ship
 				State.add_cargo("copper", 120.0)
 				State.add_cargo("gold", 30.0)

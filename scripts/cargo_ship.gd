@@ -227,7 +227,7 @@ func tick_dish(dt: float, belt: Belt) -> void:
 		var rock: int = D["rock"]
 		if rock >= belt.count:
 			rock = -1   # the belt was rebuilt under it (a zone change)
-		if rock >= 0 and (belt.alive[rock] == 0 or belt.pos[rock].distance_to(true_pos) > range * 1.15):
+		if rock >= 0 and (belt.alive[rock] == 0 or belt.rock_pos(rock).distance_to(true_pos) > range * 1.15):
 			rock = -1
 		if rock < 0 and float(D["retarget"]) <= 0.0:
 			D["retarget"] = 0.6
@@ -243,10 +243,10 @@ func tick_dish(dt: float, belt: Belt) -> void:
 							continue
 						if int(Data.ORES[Data.ORE_KEYS[belt.ore[i]]]["unlock"]) > int(State.depot["laser"]) + 1:
 							continue   # the dish only works ores its own level has opened
-						var d2 := belt.pos[i].distance_squared_to(true_pos)
+						var d2 := belt.rock_pos(i).distance_squared_to(true_pos)
 						if d2 >= bd:
 							continue
-						var local := to_local_true(belt.pos[i])
+						var local := to_local_true(belt.rock_pos(i))
 						if not _in_arc(turret_angles(local), local):
 							continue
 						bd = d2
@@ -255,7 +255,7 @@ func tick_dish(dt: float, belt: Belt) -> void:
 			D["firing"] = false
 		D["rock"] = rock
 		if rock >= 0:
-			var local := to_local_true(belt.pos[rock])
+			var local := to_local_true(belt.rock_pos(rock))
 			var want := turret_angles(local)
 			if not _in_arc(want, local):
 				D["rock"] = -1
@@ -267,7 +267,7 @@ func tick_dish(dt: float, belt: Belt) -> void:
 				D["firing"] = not (err > (0.06 if D["firing"] else 0.02))
 				if D["firing"]:
 					var muzzle := to_true(muzzle_local(D["yaw"], D["pitch"]))
-					var hit: Vector3 = belt.pos[rock] + (muzzle - belt.pos[rock]).normalized() * belt.radius[rock] * 0.85
+					var hit: Vector3 = belt.rock_pos(rock) + (muzzle - belt.rock_pos(rock)).normalized() * belt.radius[rock] * 0.85
 					D["hit"] = hit
 					belt.damage(rock, float(L["rate"]) * 5.0 * dt)
 					if belt.hp[rock] <= 0.0:

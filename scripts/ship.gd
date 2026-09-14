@@ -754,7 +754,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 	if target >= 0:
 		var oc: float = State.stat("overcharge")["mult"] if (overcharge and State.fuel > 0.0) else 1.0
 		var can_cut: bool = belt.ore[target] < 0 or int(Data.ORES[Data.ORE_KEYS[belt.ore[target]]]["unlock"]) <= int(State.up["laser"]) + 1
-		end = belt.pos[target] - (belt.pos[target] - origin).normalized() * belt.radius[target] * 0.85
+		end = belt.rock_pos(target) - (belt.rock_pos(target) - origin).normalized() * belt.radius[target] * 0.85
 		if can_cut:
 			laser_on = true
 			var rate: float = State.stat("laser")["rate"] * oc

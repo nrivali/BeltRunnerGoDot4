@@ -1484,7 +1484,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	var reason := ""
 	if has_target:
 		var i := ship.target
-		tdist = belt.pos[i].distance_to(ship.true_pos())
+		tdist = belt.rock_pos(i).distance_to(ship.true_pos())
 		_target.visible = true
 		_t_name.text = ("Barren" if belt.ore[i] < 0 else str(Data.ORES[Data.ORE_KEYS[belt.ore[i]]]["name"])) + " Rock"
 		_t_rows.text = "%s   %s" % [_kv("SIZE", Belt.CLS_NAME[belt.cls[i]]), _kv("RANGE", Data.fm(tdist) + " m" + ("" if tdist <= reach else " · beyond reach"))]
@@ -1561,8 +1561,8 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	_fade.color.a = ship.warp_fade()
 	# the reticle on the target
 	if has_target and show_flight and ship.cut.is_empty():
-		var sp := ship.cam.unproject_position(belt.pos[ship.target] - ship.main.world_offset)
-		_reticle.visible = not ship.cam.is_position_behind(belt.pos[ship.target] - ship.main.world_offset)
+		var sp := ship.cam.unproject_position(belt.rock_pos(ship.target) - ship.main.world_offset)
+		_reticle.visible = not ship.cam.is_position_behind(belt.rock_pos(ship.target) - ship.main.world_offset)
 		_reticle.position = sp - Vector2(32, 32)
 		_reticle.hot = ship.laser_on
 		_reticle.queue_redraw()
@@ -1603,7 +1603,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 			var i: int = m[0]
 			if i == ship.target:
 				continue
-			var wp: Vector3 = belt.pos[i] - ship.main.world_offset
+			var wp: Vector3 = belt.rock_pos(i) - ship.main.world_offset
 			var behind := ship.cam.is_position_behind(wp)
 			var sp := ship.cam.unproject_position(wp)
 			if behind:

@@ -13,6 +13,21 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 11 — rocks on their rails, and fragments
+
+| Piece | Where | Status |
+|---|---|---|
+| Every rock rides its orbit rail at 28 u/s, counter-clockwise seen from above (field rocks ride their field's rail, keeping their offset from its centre); the drift is applied on the GPU by the rock shader from per-instance rail data, so 54,000 moving rocks cost nothing per frame; gameplay reads positions analytically (`rock_pos`, `rock_vel`) | `scripts/belt.gd` | ported from the HTML's a.ang / a.orbit and orbitalVel |
+| Astra's rock materials as one shader with the same maps and factors (albedo, roughness and metallic channels, normal map, emission), the ore veins still taking the instance colour | `scripts/belt.gd` (`ROCK_SHADER`, `_convert_material`) | rebuilt |
+| Free rocks: knocked off the rail they coast in a straight line, bounce off the zone edge and come to rest on the planet, as their own one-instance nodes | `scripts/belt.gd` (`set_free`, `tick`) | ported |
+| Fragments: colossal → giants → large → small; three to five pieces of the next class down, about half carrying three quarters of the parent's ore, the rest plain stone; a quarter of the ore comes loose at once; pieces start well apart with a shove; a broken fragment is gone for good | `scripts/main.gd` (`_split_rock`), `scripts/belt.gd` (`add_fragment`) | ported from splitRock / breakRock |
+| Loose ore lumps drift with the rock's orbital velocity | `scripts/main.gd` | ported |
+| A broken belt rock grows back after five minutes, in its own chunk, back on a rail, health and ore restored | `scripts/belt.gd` (`_respawn`) | ported (placed in the same chunk so its MultiMesh keeps drawing it correctly) |
+
+Not ported with this: the residual heat glow on fresh fragments, the scrap debris and sparks, and rock-on-rock
+collision (the browser only tests pairs once something is adrift; nothing in the port knocks rocks adrift yet).
+The smoke run watches a rail rock drift, breaks a large copper rock and lists its fragments.
+
 ## Milestone 10 — the hyperspace jump
 
 | Piece | Where | Status |
@@ -171,7 +186,7 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: rocks drifting on their orbit rails, rock fragments, the tow, the Q lock. The game logic for those exists in
+Not yet: the tow and the Q lock (the rails and fragments came in milestone 11). The game logic for those exists in
 the HTML and ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
 
 Scrapped, not just unported: the raiders (the browser's pirates, mines, threat readout and zone danger ratings). The
