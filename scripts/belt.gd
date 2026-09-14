@@ -59,6 +59,9 @@ var respawn_at := PackedFloat32Array()   # a broken belt rock grows back near wh
 var amount_max := PackedFloat32Array()
 var _basis: Array = []                   # each rock's rotation and stretch, kept so a moved rock draws the same
 var _belts: Array = []
+var _fields: Array = []                  # the charted fields and rich pockets: name, center (at build), ang, orbit, radius, pocket
+var _pair_cache := {}                    # free rock id -> the rocks near it, for rock-on-rock contact
+var _pair_frame := 0
 var _frag_nodes := {}                    # rock id -> MeshInstance3D for free rocks
 var _free_ids := PackedInt32Array()
 var _dead := PackedInt32Array()
@@ -345,6 +348,8 @@ func clear() -> void:
 	_hot = PackedInt32Array()
 	_basis = []
 	_belts = []
+	_fields = []
+	_pair_cache = {}
 	for n in _frag_nodes.values():
 		n.queue_free()
 	_frag_nodes = {}
@@ -400,6 +405,9 @@ func build(zone: Dictionary, seed: int) -> void:
 		var nf: int = FIELDS_PER_BELT[bi] if bi < FIELDS_PER_BELT.size() else 0
 		for f in nf:
 			var fld := _make_field(b, density)
+			fld["name"] = "%s%d-%s" % [str(zone["name"])[0], bi + 1, char(65 + f)]   # K1-A ...
+			fld["pocket"] = false
+			_fields.append(fld)
 			for i in fld["count"]:
 				_make_rock(b, fld, bi)
 	# rich pockets: tight clusters anywhere in the zone, every ore the zone offers, two and a half times the yield
@@ -418,7 +426,8 @@ func build(zone: Dictionary, seed: int) -> void:
 		var lat := asin(_rng.randf_range(-1.0, 1.0)) * 0.85
 		var porbit: float = max(planet_r * 0.2, cos(lat) * dist)
 		var centre := Vector3(cos(pang) * porbit, sin(lat) * dist, sin(pang) * porbit)
-		var fld := {"radius": prad, "center": centre, "ores": all_ores, "count": roundi(_rng.randf_range(40.0, 90.0)), "ang": pang, "orbit": porbit}
+		var fld := {"radius": prad, "center": centre, "ores": all_ores, "count": roundi(_rng.randf_range(40.0, 90.0)), "ang": pang, "orbit": porbit, "name": "%sP-%d" % [str(zone["name"])[0], i + 1], "pocket": true}
+		_fields.append(fld)
 		for k in fld["count"]:
 			_make_rock(pocket_belt, fld, pocket_bi)
 	_build_chunks()
@@ -577,6 +586,83 @@ func rocks_within(from: Vector3, range: float) -> PackedInt32Array:
 	return out
 
 
+# ---- the charted fields: they ride their rails like their rocks
+func field_centre(f: Dictionary) -> Vector3:
+	return (f["center"] as Vector3) + _delta(float(f["ang"]), float(f["orbit"]))
+
+
+## The field `p` is inside, or {}.
+func field_at(p: Vector3) -> Dictionary:
+	for f in _fields:
+		if field_centre(f).distance_to(p) < float(f["radius"]):
+			return f
+	return {}
+
+
+## The nearest field by its edge, with the distance to that edge under "edge"; {} in a zone without fields.
+func nearest_field(p: Vector3) -> Dictionary:
+	var best := {}
+	var bd := INF
+	for f in _fields:
+		var e: float = field_centre(f).distance_to(p) - float(f["radius"])
+		if e < bd:
+			bd = e
+			best = f
+	if best.is_empty():
+		return best
+	var out := best.duplicate()
+	out["edge"] = max(0.0, bd)
+	return out
+
+
+## Rock-on-rock (rockPair): only rocks that are adrift need pair tests. Along the line between two rocks the overlap
+## pushes both out, mass-weighted, and knocks both off their rails with a soft bounce.
+func _tick_pairs() -> void:
+	if _free_ids.size() == 0:
+		return
+	_pair_frame += 1
+	var refresh: bool = _pair_frame % 30 == 1
+	for i in Array(_free_ids):
+		if alive[i] == 0:
+			continue
+		var pa: Vector3 = pos[i]
+		var ra: float = radius[i]
+		var cands: PackedInt32Array
+		if refresh or not _pair_cache.has(i):
+			cands = rocks_within(pa, ra * 3.0 + 1500.0)
+			_pair_cache[i] = cands
+		else:
+			cands = _pair_cache[i]
+		for j in cands:
+			if j == i or j >= count or alive[j] == 0:
+				continue
+			var pb := rock_pos(j)
+			var n := pb - pa
+			var d := n.length()
+			var min_d: float = (ra + radius[j]) * 0.92 + 4.0
+			if d < 1e-3 or d >= min_d:
+				continue
+			n /= d
+			var ma: float = ra * ra * ra
+			var mb: float = radius[j] * radius[j] * radius[j]
+			var tot := ma + mb
+			var overlap := min_d - d
+			if free[j] == 0:
+				set_free(j, rock_vel(j))
+			pos[i] = pa - n * overlap * mb / tot
+			pos[j] = pb + n * overlap * ma / tot
+			pa = pos[i]
+			var vrel: float = vel[j].dot(n) - vel[i].dot(n)
+			if vrel >= 0.0:
+				continue
+			var jimp: float = -(1.0 + 0.3) * vrel / (1.0 / ma + 1.0 / mb)
+			vel[i] -= n * jimp / ma
+			vel[j] += n * jimp / mb
+			var nj: Node3D = _frag_nodes.get(j)
+			if nj:
+				nj.position = pos[j] - _offset
+
+
 ## bumpRock: the ship hit it. Small rocks take the whole hit, big ones barely notice; a shove over several frames
 ## never launches the rock faster than the ship hit it.
 func bump(i: int, dir: Vector3, speed: float) -> void:
@@ -658,6 +744,7 @@ func add_fragment(c: int, r: float, ore_i: int, barren: bool, p: Vector3, amt: f
 ## the planet), and broken belt rocks growing back.
 func tick(dt: float, near_ids: PackedInt32Array = PackedInt32Array()) -> void:
 	_tick_scrap(dt, near_ids)
+	_tick_pairs()
 	_elapsed = State.time - _t0
 	for m in _mats:
 		m.set_shader_parameter("u_time", _elapsed)
@@ -1144,6 +1231,53 @@ func _tick_scrap(dt: float, near_ids: PackedInt32Array) -> void:
 				_scrap_vel[s] -= nrm * vn * 1.5
 				_scrap_spin[s] = min(2.5, _scrap_spin[s] + 0.4)
 		_scrap_pos[s] = p
+		s -= 1
+	# chunks bounce off one another (collideDebris): pairs found through a coarse spatial hash, mass-weighted, a little inelastic
+	if _scrap_pos.size() > 1:
+		var cells := {}
+		for k in _scrap_pos.size():
+			var q: Vector3 = _scrap_pos[k]
+			var key := Vector3i(floori(q.x / 600.0), floori(q.y / 600.0), floori(q.z / 600.0))
+			if not cells.has(key):
+				cells[key] = PackedInt32Array()
+			var arr: PackedInt32Array = cells[key]
+			arr.append(k)
+			cells[key] = arr
+		for k in _scrap_pos.size():
+			var q: Vector3 = _scrap_pos[k]
+			var ck := Vector3i(floori(q.x / 600.0), floori(q.y / 600.0), floori(q.z / 600.0))
+			for dx in [-1, 0, 1]:
+				for dy in [-1, 0, 1]:
+					for dz in [-1, 0, 1]:
+						var arr: PackedInt32Array = cells.get(ck + Vector3i(dx, dy, dz), PackedInt32Array())
+						for c in arr:
+							if c <= k:
+								continue
+							var n: Vector3 = _scrap_pos[c] - _scrap_pos[k]
+							var d := n.length()
+							var min_d: float = _scrap_r[k] + _scrap_r[c]
+							if d >= min_d or d < 1e-3:
+								continue
+							n /= d
+							var mk: float = pow(_scrap_r[k], 3.0) / 1000.0
+							var mc: float = pow(_scrap_r[c], 3.0) / 1000.0
+							var tot := mk + mc
+							var overlap := min_d - d
+							_scrap_pos[k] -= n * overlap * mc / tot
+							_scrap_pos[c] += n * overlap * mk / tot
+							var vrel: float = _scrap_vel[c].dot(n) - _scrap_vel[k].dot(n)
+							if vrel >= 0.0:
+								continue
+							var jimp: float = -(1.0 + 0.55) * vrel / (1.0 / mk + 1.0 / mc)
+							_scrap_vel[k] -= n * jimp / mk
+							_scrap_vel[c] += n * jimp / mc
+							_scrap_spin[k] = min(2.5, _scrap_spin[k] + absf(jimp) / mk * 0.02)
+							_scrap_spin[c] = min(2.5, _scrap_spin[c] + absf(jimp) / mc * 0.02)
+	s = _scrap_pos.size() - 1
+	while s >= 0:
+		var t: float = _scrap_t[s]
+		var left: float = _scrap_life[s] - t
+		var p: Vector3 = _scrap_pos[s]
 		var b: Basis = _scrap_basis[s]
 		b = b.rotated(_scrap_axis[s], _scrap_spin[s] * dt)
 		_scrap_basis[s] = b

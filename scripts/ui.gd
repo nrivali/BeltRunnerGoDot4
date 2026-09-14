@@ -448,27 +448,34 @@ class Marker extends Control:
 	var color: Color = Ui.AMBER
 	var off := false
 	var angle := 0.0
+	var round := false    # .marker.field: a dashed circle instead of the diamond
+	var small := false    # .marker.drone: a smaller diamond and label
 	var font: Font
 
 	func _init() -> void:
-		size = Vector2(200, 44)
+		size = Vector2(240, 44)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		font = Ui.font("display", 1.4)
 
 	func _draw() -> void:
 		var cx := size.x * 0.5
+		var half := 4.0 if small else 5.0
 		if off:
 			var t := Transform2D(angle + PI * 0.5, Vector2(cx, 8))
 			draw_set_transform_matrix(t)
 			draw_colored_polygon(PackedVector2Array([Vector2(0, -6), Vector2(6, 5), Vector2(-6, 5)]), color)
 			draw_set_transform_matrix(Transform2D.IDENTITY)
+		elif round:
+			for k in 8:
+				draw_arc(Vector2(cx, 8), 4.5, k * TAU / 8.0, (k + 0.6) * TAU / 8.0, 4, color, 2.0)
 		else:
 			var t := Transform2D(PI * 0.25, Vector2(cx, 8))
 			draw_set_transform_matrix(t)
-			draw_rect(Rect2(-5, -5, 10, 10), color, false, 2.0)
+			draw_rect(Rect2(-half, -half, half * 2.0, half * 2.0), color, false, 2.0)
 			draw_set_transform_matrix(Transform2D.IDENTITY)
-		draw_string(font, Vector2(1, 33), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 10, Color(0, 0, 0, 0.8))
-		draw_string(font, Vector2(0, 32), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 10, color)
+		var fs := 9 if small else 10
+		draw_string(font, Vector2(1, 33), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, Color(0, 0, 0, 0.8))
+		draw_string(font, Vector2(0, 32), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, color)
 
 
 ## Radar blips: a diamond in the ore's colour on every marked rock in view (an arrow at the screen edge for the ones out

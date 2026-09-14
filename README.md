@@ -13,6 +13,17 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 14 — fields, markers, the dish's effects, force fields, rock-on-rock
+
+| Piece | Where | Status |
+|---|---|---|
+| The charted fields carry names (K1-A…, rich pockets KP-1…) and ride their rails; the FIELD readout names the one you are in; a marker points to the nearest field's edge while you are outside one | `scripts/belt.gd` (`field_at`, `nearest_field`), `scripts/hud.gd` | ported |
+| A cyan marker on every collector drone with what it is doing, its load and its range; the cargo ship marker names the near dock within 4,500 m | `scripts/hud.gd` | ported from droneMarker / placeMarker |
+| The ship's mining dish swings onto the beam's target (a few radians a second, forward half only) and settles forward when idle; its six rim emitters glow faintly, pulse while it slews onto a rock and flicker hard while it fires; six rim beams converge on the focus while the beam cuts; the beam starts at the focus | `scripts/ship.gd` (`_tick_dish`, `_build_dish_fx`) | ported from shipDishAnglesTo / animateDish, driving the model's own yaw and pitch rig |
+| The cargo ship dish's beam gets its soft sheath and a glow where it lands, flickering | `scripts/cargo_ship.gd` | ported |
+| Force fields across both hangar mouths: a shimmering drifting grid that flashes whenever the ship or a drone passes through | `scripts/cargo_ship.gd` (`_build_force_fields`, `flash_field`) | ported |
+| Rock-on-rock contact for rocks that are adrift: overlap pushes both out, mass-weighted, with a soft bounce, knocking the other off its rail; scrap chunks bounce off one another through a coarse spatial hash | `scripts/belt.gd` (`_tick_pairs`, `_tick_scrap`) | ported from rockPair / collideDebris |
+
 ## Milestone 13 — collisions, sparks, scrap, heat, LOD 0, free look
 
 | Piece | Where | Status |

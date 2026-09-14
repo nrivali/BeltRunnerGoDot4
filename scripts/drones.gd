@@ -245,6 +245,11 @@ func tick(dt: float) -> void:
 				"exit":
 					c["phase"] = "idle"
 					c["side"] = 0
+		# passing through a mouth's force field flashes it
+		if c["phase"] == "enter" or c["phase"] == "exit":
+			var lz: float = carrier.to_local_true(pos).z
+			if absf(absf(lz) - CargoShip.BAY_Z_OUT) < 90.0:
+				carrier.flash_field(1 if lz > 0.0 else -1)
 		# face the way it is going (relative to the carrier when hovering home), engines bright under thrust
 		var node: Node3D = c["node"]
 		node.position = pos - offset

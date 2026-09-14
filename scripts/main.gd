@@ -656,6 +656,9 @@ func _smoke_step() -> void:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
 				print("smoke: fx · sparks %d · scrap %d · lod0 rocks %d · near rocks %d" % [sparks.count(), belt.scrap_count(), belt.lod0_count(), ship.near_rocks.size()])
+				var fld: Dictionary = belt.field_at(ship.true_pos())
+				var nf: Dictionary = belt.nearest_field(ship.true_pos())
+				print("smoke: fields %d · in %s · nearest %s at %.0f · dish aim yaw=%.2f pitch=%.2f aimed=%s" % [belt._fields.size(), str(fld.get("name", "-")), str(nf.get("name", "-")), float(nf.get("edge", 0.0)), ship.aim_yaw, ship.aim_pitch, str(ship.aimed)])
 				var frags: Array = []
 				for j in range(_smoke_count, belt.count):
 					frags.append("%s r=%.0f ore=%.0f" % [belt.rock_name(j), belt.radius[j], belt.amount[j]])
@@ -679,7 +682,7 @@ func _smoke_step() -> void:
 				_shot("smoke_dock")
 				var before := State.store_total()
 				ship.deposit_all()
-				print("smoke: docked in %s · store %.0f -> %.0f · hold=%.0f · fuel=%.1f/%.0f shipFuel=%.0f" % [CargoShip.bay_name(ship.dock_side), before, State.store_total(), State.cargo_total(), State.fuel, State.stat("tank")["cap"], State.ship_fuel])
+				print("smoke: docked in %s · store %.0f -> %.0f · hold=%.0f · fuel=%.1f/%.0f shipFuel=%.0f · force field flashes %d" % [CargoShip.bay_name(ship.dock_side), before, State.store_total(), State.cargo_total(), State.fuel, State.stat("tank")["cap"], State.ship_fuel, carrier.field_flashes])
 				_next("docked")
 		"docked":
 			if _phase_frame == 60:
@@ -728,7 +731,7 @@ func _smoke_step() -> void:
 			if _phase_frame % 600 == 0:
 				print("smoke: waiting on the drone · %s · stowed %.0f" % [str(drones.stats()), State.drone_units])
 			if _phase_frame > 130 and (State.drone_units > 0.5 or _phase_frame > 6000):
-				print("smoke: drone run %s · stowed by drones %.0f · store gold %.0f" % ["done" if State.drone_units > 0.5 else "TIMED OUT", State.drone_units, State.store["gold"]])
+				print("smoke: drone run %s · stowed by drones %.0f · store gold %.0f · force field flashes %d" % ["done" if State.drone_units > 0.5 else "TIMED OUT", State.drone_units, State.store["gold"], carrier.field_flashes])
 				ship.start_departure()
 				_next("depart")
 		"depart":

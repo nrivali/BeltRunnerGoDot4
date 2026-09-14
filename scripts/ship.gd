@@ -246,6 +246,20 @@ func _tug_box(size: Vector3, mat: Material, at: Vector3) -> void:
 
 const MODEL := "res://assets/ship/player_ship.glb"
 var model: Node3D
+var _dish_yaw: Node
+var _dish_pitch: Node
+var _focus: Node
+var _dish_mount := Vector3(0.0, -3.4, 7.0)
+var _rim_mat: StandardMaterial3D
+var _beam_mat: StandardMaterial3D
+var _focus_mat: StandardMaterial3D
+var _rim_beams: Array = []
+var _focus_glow: MeshInstance3D
+var aim_yaw := 0.0
+var aim_pitch := 0.05
+var aimed := false
+var has_aim := false
+var aim_point := Vector3.ZERO   # true coordinates: where the beam is going this frame
 
 
 ## Astra's player ship (delta wings, level-1 fittings), built with its nose along +Z as the HTML flies it, so it is turned
@@ -267,9 +281,114 @@ func _build_body() -> void:
 				glow.light_energy = 1.2
 				glow.omni_range = 40.0
 				(a as Node3D).add_child(glow)
+		_build_dish_fx()
 		print("ship: model loaded")
 		return
 	_build_placeholder()
+
+
+## The mining dish's rig in Astra's model (mining_dish_yaw / mining_dish_pitch, the focus lens and six rim emitters)
+## and its effects: a faint idle glow on the emitters that pulses while it slews onto a rock and flickers hard while it
+## fires, a glow at the focus, and six rim beams converging on the focus while the beam cuts (the browser's animateDish).
+func _build_dish_fx() -> void:
+	_dish_yaw = model.find_child("mining_dish_yaw", true, false)
+	_dish_pitch = model.find_child("mining_dish_pitch", true, false)
+	_focus = model.find_child("focus", true, false)
+	var mount := model.find_child("dish_mount", true, false)
+	if mount is Node3D:
+		_dish_mount = (mount as Node3D).position
+	if _dish_pitch == null or _focus == null:
+		return
+	_rim_mat = StandardMaterial3D.new()
+	_rim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_rim_mat.albedo_color = Color(0.56, 0.91, 1.0, 0.12)
+	_rim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_rim_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_beam_mat = StandardMaterial3D.new()
+	_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_beam_mat.albedo_color = Color(1.0, 0.77, 0.4, 0.8)
+	_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_beam_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_focus_mat = StandardMaterial3D.new()
+	_focus_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_focus_mat.albedo_color = Color(1.0, 0.77, 0.4, 0.1)
+	_focus_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_focus_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var fp: Vector3 = (_focus as Node3D).position
+	for k in 6:
+		var rim := model.find_child("rim_%d" % k, true, false)
+		if not (rim is Node3D):
+			continue
+		var rp: Vector3 = (rim as Node3D).position
+		var g := MeshInstance3D.new()
+		var s := SphereMesh.new()
+		s.radius = 0.22
+		s.height = 0.44
+		s.radial_segments = 8
+		s.rings = 4
+		g.mesh = s
+		g.material_override = _rim_mat
+		g.position = rp
+		_dish_pitch.add_child(g)
+		var beam := MeshInstance3D.new()
+		var c := CylinderMesh.new()
+		c.top_radius = 0.025
+		c.bottom_radius = 0.025
+		c.height = 1.0
+		c.radial_segments = 6
+		beam.mesh = c
+		beam.material_override = _beam_mat
+		var d := fp - rp
+		beam.position = (rp + fp) * 0.5
+		if d.length() > 1e-4:
+			beam.look_at_from_position(beam.position, beam.position + d, Vector3.UP if absf(d.normalized().y) < 0.98 else Vector3.RIGHT)
+			beam.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+		beam.scale = Vector3(1.0, d.length(), 1.0)
+		beam.visible = false
+		_dish_pitch.add_child(beam)
+		_rim_beams.append(beam)
+	_focus_glow = MeshInstance3D.new()
+	var fs := SphereMesh.new()
+	fs.radius = 0.45
+	fs.height = 0.9
+	fs.radial_segments = 8
+	fs.rings = 4
+	_focus_glow.mesh = fs
+	_focus_glow.material_override = _focus_mat
+	_focus_glow.position = fp
+	_dish_pitch.add_child(_focus_glow)
+
+
+## The dish swings onto whatever the beam is going to (fast, a few radians a second) and settles forward when idle; it
+## only covers the forward half, 90 degrees either side of the nose. Angles are taken in the model's own frame.
+func _tick_dish(dt: float) -> void:
+	if _dish_yaw == null or _dish_pitch == null:
+		return
+	var want_yaw := 0.0
+	var want_pitch := 0.05
+	if has_aim:
+		var L: Vector3 = model.to_local(aim_point - main.world_offset) - _dish_mount
+		want_yaw = atan2(-L.x, L.z)
+		want_pitch = atan2(-L.y, Vector2(L.x, L.z).length())
+	var in_arc: bool = absf(want_yaw) <= PI / 2.0
+	want_yaw = clampf(want_yaw, -PI / 2.0, PI / 2.0)
+	want_pitch = clampf(want_pitch, -0.7, 1.3)
+	var rate := 3.5 * dt
+	aim_yaw += clampf(want_yaw - aim_yaw, -rate, rate)
+	aim_pitch += clampf(want_pitch - aim_pitch, -rate, rate)
+	aimed = has_aim and in_arc and absf(want_yaw - aim_yaw) < 0.05 and absf(want_pitch - aim_pitch) < 0.05
+	(_dish_yaw as Node3D).rotation = Vector3(0.0, -aim_yaw, 0.0)
+	(_dish_pitch as Node3D).rotation = Vector3(aim_pitch, 0.0, 0.0)
+	if _rim_mat == null:
+		return
+	var t := State.time
+	var aiming: bool = not firing and has_aim
+	_rim_mat.albedo_color.a = (0.7 + randf() * 0.3) if laser_on else ((0.3 + 0.25 * sin(t * 9.0)) if aiming else 0.12)
+	_focus_mat.albedo_color.a = (0.85 + randf() * 0.15) if laser_on else ((0.2 + 0.15 * sin(t * 9.0)) if aiming else 0.1)
+	_focus_glow.scale = Vector3.ONE * (1.55 if laser_on else 1.0)
+	_beam_mat.albedo_color.a = 0.6 + randf() * 0.35
+	for b in _rim_beams:
+		b.visible = laser_on
 
 
 func _build_placeholder() -> void:
@@ -626,6 +745,11 @@ func _tow_update(dt: float) -> void:
 
 func tick(dt: float) -> void:
 	torch.visible = torch_on and not docked and warp.is_empty() and visible
+	# passing through a mouth's force field flashes it, under approach control or on your own
+	if carrier and not carrier.hold and warp.is_empty():
+		var fl := carrier.to_local_true(true_pos())
+		if absf(fl.x) < CargoShip.BAY_X1 + 40.0 and absf(fl.y) < CargoShip.BAY_Y1 + 40.0 and absf(absf(fl.z) - CargoShip.BAY_Z_OUT) < 70.0:
+			carrier.flash_field(1 if fl.z > 0.0 else -1)
 	if _uncover_t >= 0.0:
 		_uncover_t += dt
 		if _uncover_t > 0.5:
@@ -671,9 +795,12 @@ func tick(dt: float) -> void:
 	if disabled:
 		firing = false
 		laser_on = false
+		has_aim = false
 		_laser.visible = false
+		_tick_dish(dt)
 		return
 	_tick_laser(dt, forward())
+	_tick_dish(dt)
 	radar_cd = max(0.0, radar_cd - dt)
 	if Input.is_action_just_pressed("radar"):
 		_radar()
@@ -1295,6 +1422,9 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 	laser_on = false
 	_laser.visible = false
 	belt.set_spot_heat(0, Vector3.ZERO, 0.0, 1.0)
+	has_aim = target >= 0
+	if has_aim:
+		aim_point = belt.rock_pos(target)
 	if not firing:
 		return
 	var end := origin + fwd * reach
@@ -1315,8 +1445,8 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 			if belt.hp[target] <= 0.0:
 				_break(target)
 				target = -1
-	# the beam: a thin cylinder from the nose to wherever the ray ends, in scene space
-	var a := position + fwd * 20.0
+	# the beam: a thin cylinder from the dish's focus to wherever the ray ends, in scene space
+	var a: Vector3 = (_focus as Node3D).global_position if _focus is Node3D else position + fwd * 20.0
 	var b: Vector3 = end - main.world_offset
 	var mid: Vector3 = (a + b) * 0.5
 	var len := a.distance_to(b)

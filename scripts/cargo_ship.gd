@@ -78,6 +78,10 @@ var pitch_off := Vector3(40.0, 0.0, 0.0)    # the pitch group's offset from the 
 var focus_local := Vector3(158.0, 105.0, 0.0)   # the beam's origin within the pitch group
 var dish := {"rock": -1, "yaw": 0.0, "pitch": 0.15, "firing": false, "retarget": 0.0, "hit": Vector3.ZERO}
 var _beam: MeshInstance3D
+var _sheath: MeshInstance3D
+var _hit_glow: MeshInstance3D
+var _fields := {}          # side -> {mesh, mat, flash}: the hangar mouths' force fields
+var field_flashes := 0     # for the smoke run
 
 
 func _ready() -> void:
@@ -164,8 +168,90 @@ func _load_model() -> bool:
 	_beam.material_override = bm
 	_beam.visible = false
 	add_child(_beam)
+	# the beam's soft sheath and the glow where it lands (depotBeamSheath / depotBeamGlow)
+	_sheath = MeshInstance3D.new()
+	_sheath.top_level = true
+	_sheath.mesh = cyl
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.albedo_color = Color(0.95, 0.64, 0.23, 0.28)
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_sheath.material_override = sm
+	_sheath.visible = false
+	add_child(_sheath)
+	_hit_glow = MeshInstance3D.new()
+	_hit_glow.top_level = true
+	var gs := SphereMesh.new()
+	gs.radius = 1.0
+	gs.height = 2.0
+	gs.radial_segments = 10
+	gs.rings = 6
+	_hit_glow.mesh = gs
+	var gm := StandardMaterial3D.new()
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.albedo_color = Color(1.0, 0.77, 0.4, 0.5)
+	gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_hit_glow.material_override = gm
+	_hit_glow.visible = false
+	add_child(_hit_glow)
+	_build_force_fields()
 	print("carrier: model loaded, %d anchors, dish rig %s" % [anchors.size(), "found" if dish_yaw else "missing"])
 	return true
+
+
+## The force field across each mouth: a shimmering grid sheet that ships pass straight through, flashing as they do.
+func _build_force_fields() -> void:
+	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in 128:
+		for x in 128:
+			var gx := x % 16
+			var gy := y % 16
+			var line: bool = gx == 0 or gy == 0 or (gx + gy) % 16 == 0
+			if line:
+				img.set_pixel(x, y, Color(1, 1, 1, 0.9))
+			elif gx < 2 or gy < 2:
+				img.set_pixel(x, y, Color(1, 1, 1, 0.25))
+	var tex := ImageTexture.create_from_image(img)
+	for side in [-1, 1]:
+		var ff := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(BAY_X1 - BAY_X0, BAY_Y1 - BAY_Y0)
+		ff.mesh = pm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color("#5ed3f0")
+		m.albedo_color.a = 0.22
+		m.albedo_texture = tex
+		m.uv1_scale = Vector3(6.0, 2.4, 1.0)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		ff.material_override = m
+		ff.rotation_degrees = Vector3(90, 0, 0)
+		ff.position = Vector3(0.0, (BAY_Y0 + BAY_Y1) * 0.5, side * (BAY_Z_OUT - 2.0))
+		add_child(ff)
+		_fields[side] = {"mesh": ff, "mat": m, "flash": 0.0}
+
+
+## Something passed through a mouth's field: it flashes bright and fades.
+func flash_field(side: int) -> void:
+	if _fields.has(side):
+		_fields[side]["flash"] = 1.0
+		field_flashes += 1
+
+
+func _tick_fields(dt: float) -> void:
+	var t := State.time
+	for side in _fields:
+		var f: Dictionary = _fields[side]
+		f["flash"] = max(0.0, float(f["flash"]) - dt * 1.8)
+		var m: StandardMaterial3D = f["mat"]
+		m.albedo_color.a = 0.11 + 0.05 * sin(t * 2.6 + side) + float(f["flash"]) * 0.7
+		m.uv1_offset = Vector3(t * 0.02, t * 0.013, 0.0)
 
 
 # ---- the mast dish (the cargo ship mining laser upgrade), ported from updateDepot
@@ -211,6 +297,9 @@ func tick_dish(dt: float, belt: Belt) -> void:
 		return
 	var L = Data.DEPOT_UPGRADES["laser"]["levels"][State.depot["laser"]]
 	var D := dish
+	_tick_fields(dt)
+	_sheath.visible = false
+	_hit_glow.visible = false
 	var slew := func(cur: float, want: float) -> float:
 		return cur + clampf(want - cur, -Data.TURRET_SLEW * dt, Data.TURRET_SLEW * dt)
 	var slew_yaw := func(cur: float, want: float) -> float:
@@ -280,11 +369,17 @@ func tick_dish(dt: float, belt: Belt) -> void:
 						var mid: Vector3 = (a + b) * 0.5
 						var len: float = a.distance_to(b)
 						if len > 1.0:
-							_beam.visible = true
-							_beam.global_position = mid
-							_beam.look_at(b, Vector3.UP)
-							_beam.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
-							_beam.scale = Vector3(1.0, len, 1.0)
+							var flick := 1.0 + sin(State.time * 23.0) * 0.12
+							for pair in [[_beam, 1.0], [_sheath, 3.0]]:
+								var mi: MeshInstance3D = pair[0]
+								mi.visible = true
+								mi.global_position = mid
+								mi.look_at(b, Vector3.UP if absf((b - a).normalized().y) < 0.98 else Vector3.FORWARD)
+								mi.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
+								mi.scale = Vector3(float(pair[1]) * flick, len, float(pair[1]) * flick)
+							_hit_glow.visible = true
+							_hit_glow.global_position = b
+							_hit_glow.scale = Vector3.ONE * 60.0 * flick
 		else:
 			D["firing"] = false
 			D["yaw"] = slew_yaw.call(D["yaw"], 0.0)

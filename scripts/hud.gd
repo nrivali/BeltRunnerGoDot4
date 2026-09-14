@@ -20,6 +20,8 @@ var _dmg: Ui.Vignette
 var _blips: Ui.Blips
 var _reticle: Ui.Reticle
 var _marker: Ui.Marker
+var _field_marker: Ui.Marker
+var _drone_markers: Array = []
 var _status: Ui.Pane
 var _g_hull: Ui.Gauge
 var _g_fuel: Ui.Gauge
@@ -285,6 +287,11 @@ func _ready() -> void:
 	_marker = Ui.Marker.new()
 	_marker.visible = false
 	add_child(_marker)
+	_field_marker = Ui.Marker.new()
+	_field_marker.color = Ui.MUTED
+	_field_marker.round = true
+	_field_marker.visible = false
+	add_child(_field_marker)
 	_build_status()
 	_build_readouts()
 	_build_target()
@@ -1457,6 +1464,37 @@ func toggle_controls() -> void:
 	State.save_game()
 
 
+## placeMarker: a marker on a scene point, or pinned to the screen edge with an arrow pointing the way when it is off
+## screen (mirrored when it is behind the camera).
+func _place_marker(m: Ui.Marker, ship: Ship, p: Vector3, text: String) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var cam := ship.cam
+	var behind := cam.is_position_behind(p)
+	var sp := cam.unproject_position(p)
+	if behind:
+		sp = vp - sp
+	var on := not behind and sp.x > 0 and sp.x < vp.x and sp.y > 0 and sp.y < vp.y
+	var ang := 0.0
+	if not on:
+		var c := vp * 0.5
+		var d := sp - c
+		if d.length() < 1.0:
+			d = Vector2(1, 0)
+		ang = d.angle()
+		var mg := 46.0
+		var sc: float = min(absf((c.x - mg) / d.x) if d.x != 0.0 else INF, absf((c.y - mg) / d.y) if d.y != 0.0 else INF)
+		sp = c + d * sc
+	m.visible = true
+	m.off = not on
+	m.angle = ang
+	m.text = text
+	m.position = sp - Vector2(m.size.x * 0.5, 8.0) - (Vector2(0, 30) if on else Vector2.ZERO)
+	m.queue_redraw()
+
+
+const DRONE_WORDS := {"idle": "standing by", "out": "collecting", "return": "returning", "enter": "entering hangar", "unload": "unloading", "exit": "leaving hangar"}
+
+
 ## The red flash of a hull knock (.dmg.on).
 func damage_flash() -> void:
 	_dmg_t = 0.6
@@ -1492,7 +1530,8 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	# the situation
 	var to_carrier: float = ship.true_pos().distance_to(carrier.true_pos) if carrier else 0.0
 	var spd_t := ("HOLDING" if hold else "DOCKED") if docked else str(roundi(spd))
-	_row1.text = "[right]%s   %s   %s   %s[/right]" % [_kv("ZONE", str(zone["name"])), _kv("SPD", spd_t), _kv("CARGO SHIP", Data.fm(to_carrier)), _kv("FIELD", "—")]
+	var here: Dictionary = belt.field_at(ship.true_pos()) if not docked else {}
+	_row1.text = "[right]%s   %s   %s   %s[/right]" % [_kv("ZONE", str(zone["name"])), _kv("SPD", spd_t), _kv("CARGO SHIP", Data.fm(to_carrier)), _kv("FIELD", str(here["name"]) if not here.is_empty() else "—")]
 	var laser := "CUTTING" if ship.laser_on else ("FIRING" if ship.firing else "ready")
 	if ship.overcharge:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
@@ -1619,32 +1658,34 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		_reticle.queue_redraw()
 	else:
 		_reticle.visible = false
-	# the cargo ship marker
-	if carrier and show_flight and not docked and not hold:
-		var p := carrier.position
-		var cam := ship.cam
-		var behind := cam.is_position_behind(p)
-		var sp := cam.unproject_position(p)
-		if behind:
-			sp = vp - sp
-		var on := not behind and sp.x > 0 and sp.x < vp.x and sp.y > 0 and sp.y < vp.y
-		var ang := 0.0
-		if not on:
-			var c := vp * 0.5
-			var d := sp - c
-			if d.length() < 1.0:
-				d = Vector2(1, 0)
-			ang = d.angle()
-			var m := 46.0
-			var sc: float = min(absf((c.x - m) / d.x) if d.x != 0.0 else INF, absf((c.y - m) / d.y) if d.y != 0.0 else INF)
-			sp = c + d * sc
-		_marker.visible = true
-		_marker.off = not on
-		_marker.angle = ang
-		_marker.position = sp - Vector2(_marker.size.x * 0.5, 8.0 if on else 8.0) - (Vector2(0, 30) if on else Vector2.ZERO)
-		_marker.queue_redraw()
+	# the cargo ship marker, the nearest charted field's (hidden while inside one), and one on every collector drone
+	var markers_on: bool = carrier != null and show_flight and not docked and not hold
+	if markers_on:
+		_place_marker(_marker, ship, carrier.position, "CARGO SHIP" if to_carrier >= 4500.0 else CargoShip.bay_name(carrier.nearest_side(ship.true_pos())).to_upper())
 	else:
 		_marker.visible = false
+	var inside: Dictionary = belt.field_at(ship.true_pos()) if markers_on else {}
+	var nf: Dictionary = belt.nearest_field(ship.true_pos()) if markers_on and inside.is_empty() else {}
+	if not nf.is_empty():
+		_place_marker(_field_marker, ship, belt.field_centre(nf) - ship.main.world_offset, "%s %s %s" % ["RICH POCKET" if nf["pocket"] else "FIELD", str(nf["name"]), Data.fm(float(nf["edge"]))])
+	else:
+		_field_marker.visible = false
+	var drones: Array = ship.main.drones.drones if markers_on else []
+	while _drone_markers.size() < drones.size():
+		var dm := Ui.Marker.new()
+		dm.color = Ui.CYAN
+		dm.small = true
+		add_child(dm)
+		_drone_markers.append(dm)
+	for di in _drone_markers.size():
+		var dm: Ui.Marker = _drone_markers[di]
+		if di >= drones.size():
+			dm.visible = false
+			continue
+		var c: Dictionary = drones[di]
+		var word: String = DRONE_WORDS.get(str(c["phase"]), str(c["phase"]))
+		var load: float = c["load"]
+		_place_marker(dm, ship, (c["pos"] as Vector3) - ship.main.world_offset, "DRONE %d · %s%s · %s" % [di + 1, word, (" · %d" % roundi(load)) if load > 0.5 else "", Data.fm((c["pos"] as Vector3).distance_to(ship.true_pos()))])
 	# radar blips
 	var items: Array = []
 	if show_flight and not docked and belt.count > 0:
