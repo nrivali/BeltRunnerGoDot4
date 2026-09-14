@@ -11,7 +11,7 @@ const STEPS := [
 	{"id": "steer", "title": "Take the stick", "ring": "controls", "wait": "open the throttle and turn", "text": "The mouse steers. W and S work the throttle, A and D roll, X cuts the throttle. Open her up and give me a turn."},
 	{"id": "hud", "title": "Ship and world", "ring": "status", "ring2": "readout", "text": "Bottom centre is your ship: hull, fuel, speed, thrust and cargo. Top right is the world: zone, laser, radar, and whatever you are looking at."},
 	{"id": "radar", "title": "Find ore", "ring": "readout", "wait": "press R", "text": "Press R to pulse the radar. Every rock it reaches is marked for a while. Ore shows as coloured veins and crystals; plain grey rock is barren, so do not waste the laser on it."},
-	{"id": "lock", "title": "Lock a copper rock", "ring": "target", "wait": "put a copper rock under the nose", "text": "Find a copper rock (orange veins) and put it under the nose. The target panel shows its size and what is left in it."},
+	{"id": "lock", "title": "Lock a copper rock", "ring": "target", "wait": "press Q on a copper rock", "text": "Find a copper rock (orange veins), put the mouse on it and press Q to lock it. The target panel shows its size and what is left in it."},
 	{"id": "mine", "title": "Cut it", "ring": "target", "wait": "collect copper", "text": "Get within laser reach and hold the left mouse button (Space or L too). The dish under the nose cuts while you hold. When the rock breaks, fly through the glow and the ore comes aboard."},
 	{"id": "inv", "title": "Your hold", "wait": "press Tab", "text": "Copper in the hold. Press Tab for your inventory: four slots, one stack each. Deposit all moves it aboard the cargo ship once you are docked."},
 	{"id": "return", "title": "Head home", "ring": "marker", "wait": "dock with the cargo ship", "text": "Follow the CARGO SHIP marker. Within 2,250 press E and approach control brings you in, or fly slowly into either hangar mouth yourself."},
@@ -43,7 +43,7 @@ func _auto(s: Dictionary) -> bool:
 		"launch": return not ship.docked and ship.cut.is_empty()
 		"steer": return flags["flown"]
 		"radar": return ship.radar_pulsed
-		"lock": return ship.target >= 0 and main.belt.ore[ship.target] >= 0 and Data.ORE_KEYS[main.belt.ore[ship.target]] == "copper"
+		"lock": return ship.lock_kind == "rock" and main.belt.ore[ship.lock_rock] >= 0 and Data.ORE_KEYS[main.belt.ore[ship.lock_rock]] == "copper"
 		"mine": return State.cargo["copper"] >= 1.0
 		"inv": return hud.inv_open
 		"return": return ship.docked

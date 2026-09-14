@@ -40,6 +40,8 @@ var _t_warn: Label
 var _controls: Ui.Pane
 var _prompt: Ui.Pane
 var _prompt_text: RichTextLabel
+var _hover_lbl: PanelContainer
+var _hover_txt: Label
 var _notice: PanelContainer
 var _toasts: VBoxContainer
 var _bar_top: ColorRect
@@ -469,7 +471,9 @@ const CONTROL_ROWS := [
 	[["↑", "↓"], "Pitch"],
 	[["LMB"], "Hold to fire the mining laser (Space or L too). It cuts only what the crosshair is on: aim the nose at a rock"],
 	[["R"], "Radar pulse"],
+	[["Q"], "Lock the crosshair on whatever the mouse is over · hover another target and press Q to switch · otherwise press Q to release"],
 	[["F"], "Flashlight on · off in flight · cargo ship services when docked"],
+	[["T"], "Out of fuel · call a tow (15% of credits)"],
 	[["E"], "Approach control within 2,250 m of the cargo ship · deposit ore on the pad"],
 	[["Tab", "I"], "Inventory · slots of 100 · jettison stacks"],
 	[["N"], "Nav map · warp (docked in the cargo ship)"],
@@ -517,6 +521,17 @@ func _build_prompt() -> void:
 	_prompt_text.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_prompt_text.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_prompt.add_child(_prompt_text)
+	# the hover readout (.hoverLbl): what the mouse is over and how far it is, beside the cursor
+	_hover_lbl = PanelContainer.new()
+	var hb := Ui.flat_box(Color(0.055, 0.071, 0.141, 0.72), Ui.LINE2, 1, 2)
+	hb.content_margin_left = 6
+	hb.content_margin_right = 6
+	_hover_lbl.add_theme_stylebox_override("panel", hb)
+	_hover_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_lbl.visible = false
+	_hover_txt = Ui.label("", "mono", 11, Ui.TEXT)
+	_hover_lbl.add_child(_hover_txt)
+	add_child(_hover_lbl)
 
 
 func _build_notice() -> void:
@@ -1446,6 +1461,11 @@ func damage_flash() -> void:
 	_dmg_t = 0.6
 
 
+## The longer, brighter flash of a hull breach (.dmg.wreck).
+func wreck_flash() -> void:
+	_dmg_t = 1.4
+
+
 # ---- every frame
 func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	var vp := get_viewport().get_visible_rect().size
@@ -1476,18 +1496,30 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	if ship.overcharge:
 		laser += " ⚡×%s" % str(State.stat("overcharge")["mult"])
 	var radar := "READY" if ship.radar_cd <= 0.0 else "%.1fs" % ship.radar_cd
-	_row2.text = "[right]%s   %s   %s[/right]" % [_kv("LASER", laser), _kv("RANGE", "%s m" % Data.fm(State.stat("range")["reach"])), _kv("RADAR", radar)]
-	# the target
-	var has_target: bool = ship.target >= 0 and belt.alive[ship.target] == 1 and not docked
 	var reach: float = State.stat("range")["reach"]
+	var locked: bool = ship.lock_kind != "" and not docked
+	var range_txt := ("%s / %s m" % [Data.fm(ship.lock_dist), Data.fm(reach)]) if locked else ("%s m" % Data.fm(reach))   # the lock's distance against the beam's reach
+	_row2.text = "[right]%s   %s   %s[/right]" % [_kv("LASER", laser), _kv("RANGE", range_txt), _kv("RADAR", radar)]
+	# the target: the panel follows the lock when there is one, else the crosshair target
+	var has_target: bool = ship.target >= 0 and belt.alive[ship.target] == 1 and not docked
 	var tdist := 0.0
 	var reason := ""
-	if has_target:
-		var i := ship.target
-		tdist = belt.rock_pos(i).distance_to(ship.true_pos())
+	var panel_rock: int = ship.lock_rock if (locked and ship.lock_kind == "rock") else (ship.target if has_target else -1)
+	if locked and ship.lock_kind == "station":
 		_target.visible = true
+		_t_eyebrow.text = "LOCKED TARGET"
+		_t_name.text = "Cargo ship"
+		_t_rows.text = "%s   %s" % [_kv("SIZE", "Carrier"), _kv("RANGE", Data.fm(ship.lock_dist) + " m")]
+		_t_hp_row.visible = false
+		_t_warn.visible = false
+	elif panel_rock >= 0:
+		var i := panel_rock
+		tdist = max(0.0, belt.rock_pos(i).distance_to(ship.laser_origin()) - belt.radius[i])
+		_target.visible = true
+		_t_eyebrow.text = "LOCKED TARGET" if locked else "TARGET"
 		_t_name.text = ("Barren" if belt.ore[i] < 0 else str(Data.ORES[Data.ORE_KEYS[belt.ore[i]]]["name"])) + " Rock"
 		_t_rows.text = "%s   %s" % [_kv("SIZE", Belt.CLS_NAME[belt.cls[i]]), _kv("RANGE", Data.fm(tdist) + " m" + ("" if tdist <= reach else " · beyond reach"))]
+		_t_hp_row.visible = true
 		_t_hp.set_value(belt.hp[i] / max(1.0, belt.hp_max[i]), Ui.AMBER2)
 		_t_hp_t.text = "%d / %d" % [ceili(max(0.0, belt.hp[i])), roundi(belt.hp_max[i])]
 		if belt.ore[i] >= 0:
@@ -1498,9 +1530,19 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		_t_warn.visible = reason != ""
 	else:
 		_target.visible = false
+	# the hover label beside the cursor: what the mouse is over and how far it is
+	var hv: Dictionary = ship.hover
+	if not hv.is_empty() and not docked and not in_cut and started:
+		_hover_lbl.visible = true
+		_hover_txt.text = "%s · %s m" % [str(hv["name"]), Data.fm(float(hv["dist"]))]
+		_hover_lbl.position = get_viewport().get_mouse_position() + Vector2(14, 14)
+	else:
+		_hover_lbl.visible = false
 	# the hint bar
 	var segs: Array = []
-	if not docked:
+	if not docked and (not ship.tow.is_empty() or ship.disabled):
+		segs.append(ship.tow_status() if not ship.tow.is_empty() else "Hull breach · drifting")
+	elif not docked:
 		if not ship.cut.is_empty():
 			if ship.cut["mode"] == "hold":
 				segs.append("Colony control has the cargo ship · %s" % str(zone.get("colony", "the colony")))
@@ -1510,6 +1552,8 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 				segs.append("%s Skip" % Ui.bb_kbd("Space"))
 		elif carrier and to_carrier < Data.DOCK_RANGE and not hold:
 			segs.append("%s Auto-dock with the cargo ship · or fly in through either hangar mouth" % Ui.bb_kbd("E"))
+		elif State.fuel <= 0.5 and ship.cut.is_empty():
+			segs.append("%s Out of fuel · call a tow (15%% of credits)" % Ui.bb_kbd("T"))
 		if has_target and ship.cut.is_empty():
 			var i := ship.target
 			if not ship.firing:
@@ -1520,6 +1564,11 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 				segs.append("%s %s" % ["Cutting" if ship.laser_on else "Aiming at", str(Data.ORES[Data.ORE_KEYS[belt.ore[i]]]["name"])])
 	elif started and State.cargo_total() > 0.5 and not hold:
 		segs.append("%s Deposit all ore into the cargo ship" % Ui.bb_kbd("E"))
+	if started and not docked and ship.cut.is_empty() and ship.can_fly():
+		if not hv.is_empty() and not ship._hover_is_lock(hv):
+			segs.append("%s %s %s" % [Ui.bb_kbd("Q"), "Switch lock to" if locked else "Lock on", str(hv["name"])])
+		elif locked:
+			segs.append("%s Release lock" % Ui.bb_kbd("Q"))
 	var ptext := ("[color=%s]  ·  [/color]" % Ui.hex(Ui.DIM)).join(segs)
 	if ptext != _prompt_text.text:
 		_prompt_text.text = ptext
@@ -1565,6 +1614,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 		_reticle.visible = not ship.cam.is_position_behind(belt.rock_pos(ship.target) - ship.main.world_offset)
 		_reticle.position = sp - Vector2(32, 32)
 		_reticle.hot = ship.laser_on
+		_reticle.locked = ship.lock_kind == "rock" and ship.lock_rock == ship.target   # locked on: heavier, wider corners
 		_reticle.queue_redraw()
 	else:
 		_reticle.visible = false

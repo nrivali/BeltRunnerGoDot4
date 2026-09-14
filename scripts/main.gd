@@ -221,6 +221,8 @@ func _setup_inputs() -> void:
 	_key("inventory", KEY_I)
 	_key("controls", KEY_C)
 	_key("torch", KEY_F)
+	_key("lock", KEY_Q)
+	_key("tow", KEY_T)
 	_key("tut_next", KEY_ENTER)
 	_key("quicksave", KEY_F5)
 	_key("menu", KEY_ESCAPE)
@@ -519,6 +521,9 @@ var _smoke_rail := -1
 var _smoke_rail_p := Vector3.ZERO
 var _smoke_rail_t := 0.0
 var _smoke_count := 0
+var _smoke_cr := 0.0
+var _smoke_tow_phase := ""
+var _smoke_tow_frame := 0
 var _tut_last := -1
 var _tut_frames := 0
 
@@ -547,6 +552,10 @@ func _smoke_tutorial() -> void:
 		"radar":
 			if _tut_frames == 30:
 				ship._radar()   # what R does (a scripted action_press is not a fresh press by the next frame)
+		"lock":
+			if _tut_frames == 30 and _smoke_rock >= 0:
+				ship.lock_on_rock(_smoke_rock)   # what Q does with the mouse on the rock
+				print("smoke: lock · %s · kind=%s dist=%.0f" % [ship.lock_name(), ship.lock_kind, ship.lock_dist])
 		"inv":
 			if _tut_frames == 30:
 				hud.toggle_inventory()
@@ -706,8 +715,27 @@ func _smoke_step() -> void:
 			if ship.cut.is_empty() and not ship.docked and _phase_frame > 30:
 				var lp := carrier.to_local_true(ship.true_pos())
 				print("smoke: departed · speed=%.0f local_z=%.0f exit_pending=%s" % [ship.speed(), lp.z, str(ship.exit_pending)])
-				# straight back aboard and off to the Hub
-				ship.enter_hangar(carrier.planet_side())
+				# out of fuel just off the mouth: T calls the tug, which latches on and hauls the ship back in
+				State.fuel = 0.0
+				ship.vel = Vector3.ZERO
+				_smoke_cr = State.credits
+				ship.call_tow()
+				_smoke_tow_phase = ""
+				print("smoke: tow requested · tug phase=%s dist0=%.0f speed=%.0f" % [str(ship.tow.get("phase", "none")), ship.tow.get("dist0", 0.0), ship.tow_speed()])
+				_next("tow")
+		"tow":
+			var ph: String = str(ship.tow.get("phase", "none"))
+			if ph != _smoke_tow_phase:
+				_smoke_tow_phase = ph
+				_smoke_tow_frame = _phase_frame
+				print("smoke: tug %s · %s · ship-tug %.0f" % [ph, ship.tow_status(), ship.true_pos().distance_to(ship.tow.get("pos", ship.true_pos())) if not ship.tow.is_empty() else 0.0])
+			if ph == "haul" and _phase_frame == _smoke_tow_frame + 90:
+				_shot("smoke_tow")   # under tow: the tug ahead with the beam on the nose
+			if ship.docked or _phase_frame > 12000:
+				if not ship.docked:
+					print("smoke: tow TIMED OUT in phase %s" % ph)
+					ship.enter_hangar(carrier.planet_side())
+				print("smoke: towed home · dock=%s · credits %.0f -> %.0f · fuel=%.0f · disabled=%s · tug=%s" % [CargoShip.bay_name(ship.dock_side), _smoke_cr, State.credits, State.fuel, str(ship.disabled), str(ship.tow.get("phase", "gone"))])
 				ship.start_warp(Data.ZONE_HUB)
 				print("smoke: warp requested · warp=%s" % str(not ship.warp.is_empty()))
 				_next("warping")

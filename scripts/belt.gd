@@ -729,6 +729,20 @@ func cull(from: Vector3) -> void:
 			_chunk_lod[ci] = lod
 
 
+## Every live rock in the chunks within `range` of `from` (true world coordinates), for the hover pick.
+func rocks_near(from: Vector3, range: float) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var span: float = range + CHUNK * 0.87 + minf(ORBIT_SPEED * _elapsed, CHUNK)
+	for ci in _chunk_centre.size():
+		var c: Vector3 = _chunk_centre[ci]
+		if c.distance_squared_to(from) > span * span:
+			continue
+		for i in _chunk_rocks[ci]:
+			if alive[i] == 1:
+				out.append(i)
+	return out
+
+
 ## The rock under the nose: a ray from `origin` along `dir` (true world coordinates), out to `reach`, with the browser
 ## game's aiming slack (about two degrees plus a few units). Returns the rock id, or -1.
 func ray_hit(origin: Vector3, dir: Vector3, reach: float) -> int:

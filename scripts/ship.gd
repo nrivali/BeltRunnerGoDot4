@@ -50,6 +50,25 @@ var _hull_mesh: MeshInstance3D
 var torch: SpotLight3D
 var torch_on := true      # F in flight; not saved, as in the browser
 
+# the Q lock (the HTML's lock / hover / lockType / lockDist): Q locks whatever the mouse is over, switches to a different
+# hovered target, or releases; the ship steers itself to keep the lock on the nose ray until it is released
+const LOCK_RANGE := 100000.0   # a lock holds out to this distance (well beyond laser reach: it is for navigating to things too)
+var lock_kind := ""            # "", "rock" or "station" (the cargo ship)
+var lock_rock := -1
+var lock_dist := 0.0
+var hover := {}                # what the mouse is over this frame: kind, rock, dist, name
+var _hover_frame := 0
+
+# the tow tug (the HTML's tow / disabled): a hull breach disables the ship, which drifts with no thrust or steering until
+# a tug from the cargo ship arrives, latches on with a tractor beam and hauls it nose-first into a hangar bay; running
+# dry (T) calls the same tug. phase: approach, latch, haul, leave
+var tow := {}
+var disabled := false
+var _tug: Node3D
+var _tug_strobe: StandardMaterial3D
+var _tug_light: OmniLight3D
+var _tow_beam: MeshInstance3D
+
 
 func _ready() -> void:
 	_build_body()
@@ -93,6 +112,121 @@ func _ready() -> void:
 	torch.position = Vector3(0.0, -1.5, -21.0) * Data.SHIP_SCALE
 	torch.look_at_from_position(torch.position, Vector3(0.0, -4.5, -2000.0), Vector3.UP)
 	add_child(torch)
+	_build_tug()
+
+
+## The tow tug (the HTML's towGroup): a stubby cargo-ship tug with a lit cab, twin engines, an amber strobe and a
+## tractor emitter at the rear. Built nose along -Z. Top level: it flies in true coordinates like the ship.
+func _build_tug() -> void:
+	_tug = Node3D.new()
+	_tug.name = "Tug"
+	_tug.top_level = true
+	_tug.visible = false
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = Color(0.62, 0.64, 0.7)
+	metal.metallic = 0.6
+	metal.roughness = 0.45
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.23, 0.25, 0.34)
+	dark.metallic = 0.7
+	dark.roughness = 0.5
+	var window := StandardMaterial3D.new()
+	window.albedo_color = Color(0.5, 0.85, 1.0)
+	window.emission_enabled = true
+	window.emission = Color(0.5, 0.85, 1.0)
+	window.emission_energy_multiplier = 2.0
+	var trim := StandardMaterial3D.new()
+	trim.albedo_color = Ui.AMBER
+	trim.emission_enabled = true
+	trim.emission = Ui.AMBER
+	trim.emission_energy_multiplier = 0.6
+	_tug_box(Vector3(12, 7, 20), metal, Vector3(0, 0, 0))
+	_tug_box(Vector3(8, 4, 7), dark, Vector3(0, 5, -4))
+	_tug_box(Vector3(7, 1.6, 0.5), window, Vector3(0, 5.4, -7.6))
+	for sx in [-1.0, 1.0]:
+		var e := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 2.0
+		cyl.bottom_radius = 2.4
+		cyl.height = 8.0
+		cyl.radial_segments = 10
+		e.mesh = cyl
+		e.material_override = dark
+		e.rotation_degrees = Vector3(90, 0, 0)
+		e.position = Vector3(sx * 6.5, -1, 8)
+		_tug.add_child(e)
+		var g := MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		sph.radius = 2.6
+		sph.height = 5.2
+		g.mesh = sph
+		var gm := StandardMaterial3D.new()
+		gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		gm.albedo_color = Ui.AMBER
+		gm.emission_enabled = true
+		gm.emission = Ui.AMBER
+		gm.emission_energy_multiplier = 3.0
+		g.material_override = gm
+		g.position = Vector3(sx * 6.5, -1, 13.5)
+		_tug.add_child(g)
+		_tug_box(Vector3(1.2, 3, 4), dark, Vector3(sx * 5, -4.5, 9))
+	var em := MeshInstance3D.new()
+	var ec := CylinderMesh.new()
+	ec.top_radius = 1.6
+	ec.bottom_radius = 2.2
+	ec.height = 3.0
+	ec.radial_segments = 10
+	em.mesh = ec
+	em.material_override = trim
+	em.rotation_degrees = Vector3(90, 0, 0)
+	em.position = Vector3(0, -1, 11)
+	_tug.add_child(em)
+	var strobe := MeshInstance3D.new()
+	var ss := SphereMesh.new()
+	ss.radius = 1.2
+	ss.height = 2.4
+	strobe.mesh = ss
+	_tug_strobe = StandardMaterial3D.new()
+	_tug_strobe.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_tug_strobe.albedo_color = Ui.AMBER
+	strobe.material_override = _tug_strobe
+	strobe.position = Vector3(0, 8, 0)
+	_tug.add_child(strobe)
+	_tug_light = OmniLight3D.new()
+	_tug_light.light_color = Ui.AMBER
+	_tug_light.light_energy = 6.0 / PI
+	_tug_light.omni_range = 400.0
+	_tug_light.omni_attenuation = 1.4
+	_tug_light.position = Vector3(0, 8, 0)
+	_tug.add_child(_tug_light)
+	add_child(_tug)
+	# the tractor beam: a pale cyan cylinder from the emitter to the ship's nose, additive and faint
+	_tow_beam = MeshInstance3D.new()
+	_tow_beam.top_level = true
+	var bc := CylinderMesh.new()
+	bc.top_radius = 1.0
+	bc.bottom_radius = 1.0
+	bc.height = 1.0
+	bc.radial_segments = 8
+	_tow_beam.mesh = bc
+	var bm := StandardMaterial3D.new()
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.albedo_color = Color(0.56, 0.91, 1.0, 0.3)
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_tow_beam.material_override = bm
+	_tow_beam.visible = false
+	add_child(_tow_beam)
+
+
+func _tug_box(size: Vector3, mat: Material, at: Vector3) -> void:
+	var b := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	b.mesh = bm
+	b.material_override = mat
+	b.position = at
+	_tug.add_child(b)
 
 
 const MODEL := "res://assets/ship/player_ship.glb"
@@ -223,6 +357,258 @@ func toggle_torch() -> void:
 	toast.emit("Flashlight on" if torch_on else "Flashlight off", false)
 
 
+func laser_origin() -> Vector3:
+	return true_pos() + forward() * 20.0
+
+
+# ---- the Q lock
+## What the mouse is over (hoverPick): every live rock within 120 km of the camera and the cargo ship are projected to
+## the screen, and the nearest one whose disc (with a 10 px minimum so distant rocks stay hoverable) contains the cursor
+## wins. dist is measured from the nose to the surface, in the same units as laser reach.
+func hover_pick() -> Dictionary:
+	if docked or not cut.is_empty() or not warp.is_empty() or main.hud.inv_open or main.hud.map_open:
+		return {}
+	var vp := get_viewport()
+	var size := vp.get_visible_rect().size
+	var m := vp.get_mouse_position()
+	if m.x < 0.0 or m.y < 0.0 or m.x > size.x or m.y > size.y:
+		return {}
+	var f := tan(deg_to_rad(cam.fov) * 0.5)
+	var origin := laser_origin()
+	var cam_true: Vector3 = cam.global_position + main.world_offset
+	var best := {}
+	var bd := INF
+	for i in belt.rocks_near(cam_true, 120000.0):
+		var p := belt.rock_pos(i)
+		var cd := cam_true.distance_to(p)
+		if cd > 120000.0 or cd >= bd:
+			continue
+		var sc: Vector3 = p - main.world_offset
+		if cam.is_position_behind(sc):
+			continue
+		var sp := cam.unproject_position(sc)
+		var r := belt.radius[i]
+		var pr: float = max(10.0, r * (size.y * 0.5) / (cd * f)) * 1.15
+		if sp.distance_squared_to(m) > pr * pr:
+			continue
+		bd = cd
+		best = {"kind": "rock", "rock": i, "dist": max(0.0, origin.distance_to(p) - r), "name": belt.rock_name(i)}
+	if carrier and not carrier.hold:
+		var p := carrier.true_pos
+		var cd := cam_true.distance_to(p)
+		if cd < 120000.0 and cd < bd:
+			var sc: Vector3 = p - main.world_offset
+			if not cam.is_position_behind(sc):
+				var sp := cam.unproject_position(sc)
+				var pr: float = max(10.0, CargoShip.HALF.x * (size.y * 0.5) / (cd * f)) * 1.15
+				if sp.distance_squared_to(m) <= pr * pr:
+					best = {"kind": "station", "rock": -1, "dist": max(0.0, origin.distance_to(p) - CargoShip.HALF.x), "name": "Cargo ship"}
+	return best
+
+
+func _hover_is_lock(h: Dictionary) -> bool:
+	return not h.is_empty() and h["kind"] == lock_kind and (lock_kind != "rock" or int(h["rock"]) == lock_rock)
+
+
+## Q: lock the hovered target, switch to a different hovered target, or release the current lock.
+func toggle_lock() -> void:
+	hover = hover_pick()   # the cursor's position now, even if it moved since the last hover pass
+	if not hover.is_empty() and not _hover_is_lock(hover):
+		lock_kind = hover["kind"]
+		lock_rock = int(hover["rock"])
+		lock_dist = float(hover["dist"])
+		toast.emit("Locked on %s" % str(hover["name"]), false)
+	elif lock_kind != "":
+		release_lock()
+		toast.emit("Lock released", false)
+	else:
+		toast.emit("Nothing under the mouse to lock on", true)
+
+
+## The smoke run's Q: a lock on a given rock.
+func lock_on_rock(i: int) -> void:
+	lock_kind = "rock"
+	lock_rock = i
+	lock_dist = max(0.0, belt.rock_pos(i).distance_to(laser_origin()) - belt.radius[i])
+	toast.emit("Locked on %s" % belt.rock_name(i), false)
+
+
+func release_lock() -> void:
+	lock_kind = ""
+	lock_rock = -1
+	lock_dist = 0.0
+
+
+func lock_pos() -> Vector3:
+	if lock_kind == "rock":
+		return belt.rock_pos(lock_rock)
+	return carrier.true_pos
+
+
+func lock_name() -> String:
+	return belt.rock_name(lock_rock) if lock_kind == "rock" else "Cargo ship"
+
+
+## The lock lapses when its rock breaks up or it falls far out of range (the cargo ship never goes away).
+func _tick_lock() -> void:
+	if lock_kind == "":
+		return
+	var gone: bool = lock_kind == "rock" and belt.alive[lock_rock] == 0
+	var r: float = belt.radius[lock_rock] if lock_kind == "rock" else CargoShip.HALF.x
+	lock_dist = max(0.0, lock_pos().distance_to(laser_origin()) - r)
+	if gone or lock_dist > LOCK_RANGE:
+		toast.emit("Lock lost · rock broke up" if gone else "Lock lost · out of range", true)
+		release_lock()
+
+
+# ---- the tow tug
+func towed() -> bool:
+	return not tow.is_empty() and (tow["phase"] == "latch" or tow["phase"] == "haul")
+
+
+func can_fly() -> bool:
+	return not disabled and not towed()
+
+
+func tow_speed() -> float:
+	return max(650.0, float(tow["dist0"]) / 80.0)   # a slow, deliberate tug: a rescue from the far edge of a zone takes well over a minute
+
+
+func _tow_approach_point(side: int) -> Vector3:
+	return carrier.to_true(CargoShip.opening_local(side)) + carrier.dir(Vector3(0.0, 0.0, float(side))) * 1500.0
+
+
+## requestTow: the tug sets out from just off the nearer mouth. A breach disables the ship on the spot.
+func request_tow(reason: String) -> void:
+	if not tow.is_empty() or docked:
+		return
+	var side := carrier.nearest_side(true_pos())
+	var start: Vector3 = carrier.to_true(CargoShip.opening_local(side)) + carrier.dir(Vector3(0.0, 0.0, float(side))) * 1800.0
+	tow = {"phase": "approach", "reason": reason, "side": side, "pos": start, "dir": Vector3.FORWARD, "t": 0.0, "leg": 0, "dist0": max(1.0, start.distance_to(true_pos())), "hold": 0.0}
+	_tug.visible = true
+	_tug.position = start - main.world_offset
+	if reason == "breach":
+		disabled = true
+		throttle = 0.0
+		laser_on = false
+		firing = false
+		_laser.visible = false
+		release_lock()
+		main.hud.wreck_flash()
+		Audio.sfx("boom_big")
+		Audio.sfx("alarm")
+		toast.emit("Hull breach · systems down · distress beacon sent", true)
+	else:
+		toast.emit("Tow requested · tug inbound", false)
+
+
+## T: a dry tank calls the tug.
+func call_tow() -> void:
+	if docked or not tow.is_empty():
+		return
+	if State.fuel > 0.5:
+		toast.emit("Fuel in the tank · the tug only comes for a dry ship", true)
+		return
+	request_tow("fuel")
+
+
+func tow_status() -> String:
+	if tow.is_empty():
+		return ""
+	match tow["phase"]:
+		"approach": return "Tug inbound · %ds" % ceili(true_pos().distance_to(tow["pos"]) / tow_speed())
+		"latch": return "Tug latching on"
+		"haul": return "Under tow to %s · cargo ship" % CargoShip.bay_name(int(tow["side"]))
+	return ""
+
+
+## towUpdate: the tug flies to the ship, kills its drift and swings round to the cargo ship's side of it while the beam
+## locks, then hauls it to the mouth and down the deck past the pad, where the bay's own capture docks it (enter_hangar
+## charges the fee); afterwards it carries on out of the far mouth and away.
+func _tow_update(dt: float) -> void:
+	var T := tow
+	T["t"] = float(T["t"]) + dt
+	var sp := true_pos()
+	var side: int = T["side"]
+	var tpos: Vector3 = T["pos"]
+	var tdir: Vector3 = T["dir"]
+	match T["phase"]:
+		"approach":
+			var to := sp - tpos
+			var d := to.length()
+			if d <= 75.0:
+				T["phase"] = "latch"
+				T["t"] = 0.0
+				toast.emit("Tug on station · latching", false)
+				Audio.sfx("chime")
+			else:
+				to /= d
+				tdir = to
+				tpos += to * min(d - 70.0, tow_speed() * dt)
+		"latch":
+			vel *= exp(-3.0 * dt)
+			position += vel * dt
+			sp = true_pos()
+			var want: Vector3 = sp + (_tow_approach_point(side) - sp).normalized() * 70.0
+			var to := want - tpos
+			var d := to.length()
+			if d > 0.5:
+				tpos += to / d * min(d, 480.0 * dt)
+			tdir = (tpos - sp).normalized()
+			T["hold"] = float(T["hold"]) + (dt if d < 4.0 else 0.0)
+			if float(T["hold"]) > 1.5:
+				T["phase"] = "haul"
+				T["t"] = 0.0
+				T["leg"] = 0
+				toast.emit("Under tow to %s" % CargoShip.bay_name(side), false)
+		"haul":
+			var leg: int = T["leg"]
+			var target: Vector3 = _tow_approach_point(side) if leg == 0 else carrier.to_true(CargoShip.park_local(side)) + carrier.dir(Vector3(0.0, 0.0, -float(side))) * 70.0   # past the pad, so the ship 70 behind lands on it
+			var to := target - tpos
+			var d := to.length()
+			var spd: float = tow_speed() if leg == 0 else 160.0
+			if d < 20.0:
+				if leg == 0:
+					T["leg"] = 1
+			else:
+				to /= d
+				tdir = tdir.lerp(to, 1.0 - exp(-3.0 * dt)).normalized()
+				tpos += to * min(d, spd * dt)
+			position = tpos - tdir * 70.0 - main.world_offset
+			vel = tdir * min(spd, d / max(dt, 1e-3))
+			set_heading(heading().slerp(level_heading(tdir), 1.0 - exp(-2.0 * dt)))
+		"leave":
+			tpos += tdir * 520.0 * dt
+			tpos.y += 50.0 * dt
+			if float(T["t"]) > 6.0:
+				tow = {}
+				_tug.visible = false
+				_tow_beam.visible = false
+				return
+	T["pos"] = tpos
+	T["dir"] = tdir
+	# the tug and its beam
+	_tug.position = tpos - main.world_offset
+	if tdir.length_squared() > 1e-6:
+		_tug.look_at(_tug.position + tdir, Vector3.UP if absf(tdir.y) < 0.98 else Vector3.FORWARD)
+	var blink: bool = fmod(float(T["t"]), 0.8) < 0.15
+	_tug_strobe.albedo_color = Color("#ffe0a0") if blink else Color("#6a4a1a")
+	_tug_light.light_energy = (12.0 if blink else 2.0) / PI
+	var latched := towed()
+	_tow_beam.visible = latched
+	if latched:
+		var from: Vector3 = tpos - tdir * 11.0 - main.world_offset
+		var to: Vector3 = position + forward() * 22.0 * Data.SHIP_SCALE
+		var mid := (from + to) * 0.5
+		var len := from.distance_to(to)
+		if len > 1.0:
+			_tow_beam.global_position = mid
+			_tow_beam.look_at(to, Vector3.UP if absf((to - from).normalized().y) < 0.98 else Vector3.FORWARD)
+			_tow_beam.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
+			var w := 3.5 + sin(float(T["t"]) * 20.0) * 0.6
+			_tow_beam.scale = Vector3(w, len, w)
+
+
 func tick(dt: float) -> void:
 	torch.visible = torch_on and not docked and warp.is_empty() and visible
 	if _uncover_t >= 0.0:
@@ -242,9 +628,29 @@ func tick(dt: float) -> void:
 	if docked:
 		_dock_update(dt)
 		return
+	if not tow.is_empty():
+		_tow_update(dt)
+		if tow.is_empty() or docked:
+			return
+	if Input.is_action_just_pressed("tow"):
+		call_tow()
+	if towed():
+		_carrier_contact()   # the tug flies the ship; the bay's own capture docks it once it is pulled deep enough
+		return
 	_fly(dt)
 	_carrier_contact()
 	if docked:
+		return
+	_tick_lock()
+	_hover_frame += 1
+	if _hover_frame % 6 == 0:
+		hover = hover_pick()   # for the hover label and the hint bar; Q picks afresh
+	if Input.is_action_just_pressed("lock") and not disabled:
+		toggle_lock()
+	if disabled:
+		firing = false
+		laser_on = false
+		_laser.visible = false
 		return
 	_tick_laser(dt, forward())
 	radar_cd = max(0.0, radar_cd - dt)
@@ -276,37 +682,54 @@ func _fly(dt: float) -> void:
 	var m := vp.get_mouse_position()
 	var sx := (m.x - size.x * 0.5) / (size.x * 0.5)
 	var sy := (m.y - size.y * 0.5) / (size.y * 0.5)
-	var yaw := -_shape(sx) if mouse_steer else 0.0
-	var pitch := -_shape(sy) if mouse_steer else 0.0
+	var yaw := 0.0
+	var pitch := 0.0
 	var roll := 0.0
-	if Input.is_action_pressed("roll_left"):
-		roll += 1.0
-	if Input.is_action_pressed("roll_right"):
-		roll -= 1.0
-	if Input.is_action_pressed("pitch_up"):
-		pitch += 1.0
-	if Input.is_action_pressed("pitch_down"):
-		pitch -= 1.0
+	var flying := can_fly()   # nothing answers while disabled: the ship drifts until the tug comes
+	if flying and lock_kind != "":
+		# Q lock: the ship turns itself to put the locked object on the nose ray (the laser's line, not the camera's); the
+		# mouse is ignored until the lock is released (roll is still yours). Proportional: full rate beyond about seven
+		# degrees off, easing in as the nose comes on.
+		var L: Vector3 = global_transform.affine_inverse() * (lock_pos() - main.world_offset) - Vector3(0.0, 0.0, -20.0)
+		var ey := atan2(-L.x, -L.z)
+		var ep := atan2(L.y, Vector2(L.x, L.z).length())
+		yaw = clampf(ey * 8.0, -1.0, 1.0) * 1.2
+		pitch = clampf(ep * 8.0, -1.0, 1.0) * 1.0
+	elif flying and mouse_steer:
+		yaw = -_shape(sx)
+		pitch = -_shape(sy)
+	if flying:
+		if Input.is_action_pressed("roll_left"):
+			roll += 1.0
+		if Input.is_action_pressed("roll_right"):
+			roll -= 1.0
+		if Input.is_action_pressed("pitch_up"):
+			pitch += 1.0
+		if Input.is_action_pressed("pitch_down"):
+			pitch -= 1.0
+	yaw = clampf(yaw, -1.0, 1.0)
+	pitch = clampf(pitch, -1.0, 1.0)
 	rotate_object_local(Vector3.UP, yaw * TURN * dt)
 	rotate_object_local(Vector3.RIGHT, pitch * TURN * dt)
 	rotate_object_local(Vector3.BACK, roll * 0.6 * dt)
 	transform.basis = transform.basis.orthonormalized()
 
 	# throttle: W raises, S lowers, X cuts; holding S at zero fires the retros
-	if Input.is_action_pressed("throttle_up"):
-		throttle = min(1.0, throttle + 0.7 * dt)
-	if Input.is_action_pressed("throttle_down"):
-		throttle = max(0.0, throttle - 0.9 * dt)
-	if Input.is_action_pressed("throttle_cut"):
-		throttle = 0.0
+	if flying:
+		if Input.is_action_pressed("throttle_up"):
+			throttle = min(1.0, throttle + 0.7 * dt)
+		if Input.is_action_pressed("throttle_down"):
+			throttle = max(0.0, throttle - 0.9 * dt)
+		if Input.is_action_pressed("throttle_cut"):
+			throttle = 0.0
 	var ab_mult: float = State.stat("thrusters")["mult"]
-	afterburning = throttle > 0.0 and Input.is_action_pressed("afterburner") and ab_mult > 1.0 and State.fuel > 0.0
+	afterburning = flying and throttle > 0.0 and Input.is_action_pressed("afterburner") and ab_mult > 1.0 and State.fuel > 0.0
 	var mult := ab_mult if afterburning else 1.0
 	thrusting = false
 	braking = false
 	var fwd := forward()
 	var sp_before := vel.length()
-	if State.fuel > 0.0:
+	if State.fuel > 0.0 and flying:
 		if throttle > 0.0:
 			vel += fwd * eng["thrust"] * throttle * mult * dt
 			State.fuel = max(0.0, State.fuel - Data.FUEL_BURN * throttle * Data.burn_mult(mult) * dt)
@@ -364,6 +787,8 @@ func _carrier_contact() -> void:
 		vel += n * (-vn * 1.4)
 		if -vn > 120.0:
 			State.hull = max(0.0, State.hull - (-vn - 120.0) * 0.08)   # a hard knock against the hull costs plating
+			if State.hull <= 0.0 and not docked and tow.is_empty():
+				request_tow("breach")   # plating gone: the ship is disabled and the tug comes for it
 
 
 ## E near the carrier: approach control flies the ship in by the nearest mouth, along the deck, to a hover over the far
@@ -507,7 +932,25 @@ func enter_hangar(side: int) -> void:
 	# session's first dock, and not during the tutorial, whose own line for this step would talk over it)
 	if flown_out and State.tut < 0:
 		get_tree().create_timer(0.8).timeout.connect(func(): if docked and not hold: Audio.intercom("hangar_%d" % (1 + randi() % 4)))
-	toast.emit("Docked in %s · stow cargo from the services panel" % CargoShip.bay_name(side), false)
+	release_lock()
+	if not tow.is_empty() and tow["phase"] == "haul":
+		# tow delivered: charge the fee, patch a breached hull enough to fly, top up an empty tank, send the tug home
+		var fee := floori(State.credits * 0.15)
+		State.credits -= fee
+		if tow["reason"] == "breach":
+			State.hull = max(State.hull, roundf(float(State.stat("hull")["hp"]) * 0.35))
+		var tank: float = State.stat("tank")["cap"]
+		if State.fuel < tank * 0.3:
+			State.fuel = tank * 0.3
+		disabled = false
+		tow["phase"] = "leave"
+		tow["t"] = 0.0
+		tow["dir"] = carrier.dir(Vector3(0.0, 0.0, -float(side)))   # the tug carries on out of the far mouth
+		tow["pos"] = true_pos() + Vector3(0.0, 45.0, 0.0)
+		_tow_beam.visible = false
+		toast.emit("Tow complete · %s cr fee%s" % [Data.fmt(fee), " · emergency hull patch applied" if tow["reason"] == "breach" else ""], false)
+	else:
+		toast.emit("Docked in %s · stow cargo from the services panel" % CargoShip.bay_name(side), false)
 	docked_changed.emit(true)
 	State.save_game()
 

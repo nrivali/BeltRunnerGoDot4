@@ -13,6 +13,23 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 12 — the Q lock and the tow tug
+
+| Piece | Where | Status |
+|---|---|---|
+| Hover pick: every live rock within 120 km of the camera and the cargo ship are projected to the screen; the nearest whose disc (10 px minimum) holds the cursor is the hover, shown as a label beside the cursor with its range from the nose | `scripts/ship.gd` (`hover_pick`), `scripts/hud.gd` | ported from hoverPick / .hoverLbl (the pick runs at 10 Hz for the label, and afresh on Q) |
+| Q: lock the hovered target, switch to a different hovered target, or release; the lock holds out to 50,000 m and lapses when the rock breaks up or falls out of range | `scripts/ship.gd` (`toggle_lock`, `_tick_lock`) | ported |
+| Lock steering: the ship turns itself to put the locked object on the nose ray (proportional, full rate beyond about seven degrees off); the mouse is ignored, roll stays yours; the laser still only cuts what the crosshair is on | `scripts/ship.gd` (`_fly`) | ported |
+| HUD: the target pane follows the lock (LOCKED TARGET; the cargo ship as a carrier with no health bar), the RANGE readout shows the lock's distance against the beam's reach, heavier reticle corners when the crosshair is on the lock, Q hints in the hint bar | `scripts/hud.gd` | ported |
+| The tow tug: T with a dry tank calls it (a hull breach calls it by itself and disables the ship: no thrust, no steering, it drifts); the tug sets out from just off the nearer mouth, kills the drift and swings to the cargo ship's side while the beam locks, hauls the ship nose-first to the mouth and down the deck past the pad, where the bay's own capture docks it; then it carries on out of the far mouth and away | `scripts/ship.gd` (`request_tow`, `_tow_update`) | ported from requestTow / towUpdate with the browser's speeds and holds |
+| Tow delivered: 15% of credits as the fee, a breached hull patched to 35%, an empty tank topped to 30% | `scripts/ship.gd` (`enter_hangar`) | ported |
+| The tug model (body, lit cab, twin engines, clamps, emitter, amber strobe and light) and the tractor beam; the hint bar's tug status; the breach flash and sounds | `scripts/ship.gd`, `scripts/hud.gd` | rebuilt |
+| Tutorial lock step: press Q on a copper rock, as the browser's | `scripts/tutorial.gd` | ported |
+
+Not ported: the free look while towed or disabled (the browser lets the mouse swing the camera then; the port has no
+free look yet). The smoke run locks the tutorial rock with Q, runs dry off the mouth, calls the tug and prints each
+phase through to the fee.
+
 ## Milestone 11 — rocks on their rails, and fragments
 
 | Piece | Where | Status |
@@ -186,8 +203,9 @@ camera by the mouth stands in), and the drag-and-drop inventory grid.
 | HUD: hull, fuel, throttle, cargo, speed, laser, radar, target panel, toasts | `scripts/hud.gd` | rebuilt with Control nodes |
 | Floating origin so a 2,800 km zone stays precise in single-precision floats | `scripts/main.gd` | new (the browser relied on JS doubles) |
 
-Not yet: the tow and the Q lock (the rails and fragments came in milestone 11). The game logic for those exists in
-the HTML and ports the same way. The browser's ambience beats were removed from the game by the user, so there are none.
+Every gameplay system of the browser game is now ported (the tow and the Q lock came in milestone 12). What remains
+are the browser's extras: free look with the right mouse button, the scrap debris and sparks, rock-on-rock collision,
+the fragment heat glow, LOD 0 rocks up close, and the ship's wing and fitting variants. The browser's ambience beats were removed from the game by the user, so there are none.
 
 Scrapped, not just unported: the raiders (the browser's pirates, mines, threat readout and zone danger ratings). The
 user dropped the concept on 2026-09-13, so the port carries no threat readout, no danger rating on the nav map, and
@@ -206,5 +224,5 @@ the tutorial's departure line no longer mentions them (re-recorded).
 Mouse steers (cursor off centre yaws and pitches) · W / S throttle · X cut · A / D roll · Shift afterburner (needs the
 refit) · LMB / Space / L mining laser · G laser overcharge (needs the refit) · R radar pulse · F flashlight · E within 2,250 m of the
 cargo ship: approach control docks you (or fly slowly into either hangar mouth) · on the pad: E deposits the hold, W
-departs, F hides the services · Tab / I inventory · N nav map · C hides the controls list · Space skips an approach ·
+departs, F hides the services · Q locks what the mouse is over · T calls a tow when dry · Tab / I inventory · N nav map · C hides the controls list · Space skips an approach ·
 F5 quick-save · Esc pause menu (settings, controls, quit).
