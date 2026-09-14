@@ -13,6 +13,14 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 17 — the soundtrack
+
+| Piece | Where | Status |
+|---|---|---|
+| The procedural music engine: eight tracks (Drift, Halcyon, Aurum, Frost, Sable, Cinder, Meridian, Umbra), each a pad colour of five chord voices through a slowly breathing lowpass, a sub, a tempo-locked echo, ambient layers (sparkle, wind, a wandering melody, a pulse, a choir swell) and a groove (kick, snare or clap, rim, hats, shaker, bass, arp, chord stabs, a lead). Ambient for two or three minutes, the groove for a minute or so, then on to the next track | `scripts/music.gd` (autoload `Music`) | ported from MUSIC_PROC: every recipe, pattern, envelope and gain copied; rendered sample by sample on its own thread into an `AudioStreamGenerator` (the pads resampled from loops rendered once per recipe, the noise hits rendered once per recipe) |
+| The comm-channel toasts: "♪ Now drifting: …" when a track starts, "… · groove on the comm channel" when the groove comes in | `scripts/main.gd` | ported |
+| Settings: Music on/off and a Music volume, separate from the sound-effects volume, saved with the game | `scripts/menu.gd`, `scripts/game_state.gd` | ported from the browser's sliders |
+
 ## Milestone 16 — the beam's heat, scorches, and the fitting variants
 
 | Piece | Where | Status |
@@ -121,7 +129,7 @@ and the custom controls; `scripts/hud.gd` is the layout; `scripts/menu.gd` is th
 | Inventory: a glass side panel on the left with credits, the hold's slot grid (ore colour along the top, ✕ jettisons) and the storage grid while docked | `scripts/hud.gd`, `scripts/game_state.gd` | rebuilt to #inv |
 | Drag and drop: a hold stack dragged onto the storage grid is stowed, a storage stack dragged onto the hold grid comes back aboard, a hold stack let go anywhere else is jettisoned (it drifts off behind the ship and cannot be scooped up for a minute); a double-click moves a stack across too; the slots that would take the stack light up amber | `scripts/hud.gd` (`Hud.Slot`), `scripts/pickup.gd` | ported from wireInventoryDrag / stowStack / takeStack / jettisonSlot with Godot's own drag-and-drop (`_get_drag_data`, `_can_drop_data`, `_drop_data`, `NOTIFICATION_DRAG_END`) |
 | Nav computer: the chart drawn as the browser's SVG (grid, dashed lanes with distances, zone nodes), the picked zone's details and the warp button | `scripts/hud.gd` (`Ui.Chart`) | rebuilt |
-| Start menu at launch, pause menu on Escape: Continue / Resume, New game (click twice to wipe), Controls, Settings (sound, volume, HUD size, tutorial restart, wipe save), Quit | `scripts/menu.gd`, `scripts/main.gd` | rebuilt to #intro; settings saved with the game |
+| Start menu at launch, pause menu on Escape: Continue / Resume, New game (click twice to wipe), Controls, Settings (sound, volume, music, music volume, HUD size, tutorial restart, wipe save), Quit | `scripts/menu.gd`, `scripts/main.gd` | rebuilt to #intro; settings saved with the game |
 
 The smoke run now also captures the inventory, the nav map and the three menu pages (fifteen screenshots), and
 drives the drag and drop the way the viewport would (storage to hold, hold to storage, a stack let go outside).

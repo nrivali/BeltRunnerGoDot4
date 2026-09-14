@@ -23,7 +23,7 @@ var tut := 0              # tutorial step; -1 once finished or skipped
 var mined := 0.0
 var earned := 0.0
 var time := 0.0
-var settings := {"sound": true, "volume": 1.0, "hud": 1.0, "controls": true}   # the menu's settings, saved with the game
+var settings := {"sound": true, "volume": 1.0, "music": true, "music_volume": 1.0, "hud": 1.0, "controls": true}   # the menu's settings, saved with the game
 var has_save := false
 
 

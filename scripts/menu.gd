@@ -25,6 +25,9 @@ var _new_armed := false
 var _sound_btn: Ui.ChamferButton
 var _vol: HSlider
 var _vol_t: Label
+var _music_btn: Ui.ChamferButton
+var _mvol: HSlider
+var _mvol_t: Label
 var _hud: HSlider
 var _hud_t: Label
 var _tut_btn: Ui.ChamferButton
@@ -184,6 +187,19 @@ func _build_settings() -> VBoxContainer:
 	_vol_t.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	vh.add_child(_vol_t)
 	v.add_child(_setting_row("Sound volume", vh))
+	_music_btn = Ui.button("On", func(): _toggle_music(), false, false, 110.0)
+	_small(_music_btn)
+	v.add_child(_setting_row("Music", _music_btn))
+	var mh := HBoxContainer.new()
+	mh.add_theme_constant_override("separation", 10)
+	_mvol = _slider(0, 100, 1)
+	_mvol.value_changed.connect(func(x: float): _mvol_t.text = "%d%%" % roundi(x); if not _syncing: setting_changed.emit("music_volume", x / 100.0))
+	mh.add_child(_mvol)
+	_mvol_t = Ui.label("100%", "mono", 11, Ui.MUTED)
+	_mvol_t.custom_minimum_size.x = 34
+	_mvol_t.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mh.add_child(_mvol_t)
+	v.add_child(_setting_row("Music volume", mh))
 	var hh := HBoxContainer.new()
 	hh.add_theme_constant_override("separation", 10)
 	_hud = _slider(70, 160, 5)
@@ -280,6 +296,9 @@ func _sync_settings() -> void:
 	_sound_btn.text = "ON" if bool(s.get("sound", true)) else "OFF"
 	_vol.value = roundi(float(s.get("volume", 1.0)) * 100.0)
 	_vol_t.text = "%d%%" % roundi(float(s.get("volume", 1.0)) * 100.0)
+	_music_btn.text = "ON" if bool(s.get("music", true)) else "OFF"
+	_mvol.value = roundi(float(s.get("music_volume", 1.0)) * 100.0)
+	_mvol_t.text = "%d%%" % roundi(float(s.get("music_volume", 1.0)) * 100.0)
 	_hud.value = roundi(float(s.get("hud", 1.0)) * 100.0)
 	_hud_t.text = "%d%%" % roundi(float(s.get("hud", 1.0)) * 100.0)
 	_syncing = false
@@ -292,6 +311,12 @@ func _toggle_sound() -> void:
 	var on: bool = not bool(State.settings.get("sound", true))
 	setting_changed.emit("sound", on)
 	_sound_btn.text = "ON" if on else "OFF"
+
+
+func _toggle_music() -> void:
+	var on: bool = not bool(State.settings.get("music", true))
+	setting_changed.emit("music", on)
+	_music_btn.text = "ON" if on else "OFF"
 
 
 func _restart_tutorial() -> void:

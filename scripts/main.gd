@@ -97,6 +97,10 @@ func _ready() -> void:
 	menu.tutorial_restart.connect(func(): tutorial.restart())
 	menu.setting_changed.connect(_setting_changed)
 	menu.quit_requested.connect(_quit)
+	# the soundtrack announces its changes over the comm channel, as the browser's toasts did
+	Music.groove_started.connect(func(n: String): if started: hud.toast("♪ %s · groove on the comm channel" % n, false))
+	Music.track_changed.connect(func(n: String): if started: hud.toast("♪ Now drifting: %s" % n, false))
+	Music.apply_settings()
 	get_window().content_scale_factor = float(State.settings.get("hud", 1.0))
 	if _smoke:
 		_start_game()
@@ -195,6 +199,8 @@ func _setting_changed(key: String, value: Variant) -> void:
 			get_window().content_scale_factor = float(value)
 		"sound", "volume":
 			Audio.apply_settings()
+		"music", "music_volume":
+			Music.apply_settings()
 	State.save_game()
 
 
@@ -660,6 +666,7 @@ func _smoke_step() -> void:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
 				print("smoke: fx · sparks %d · scrap %d · lod0 rocks %d · near rocks %d · spot heat %.2f · scorches %d · fittings %s" % [sparks.count(), belt.scrap_count(), belt.lod0_count(), ship.near_rocks.size(), ship.spot_heat, belt.burn_count(), ship.variant_report()])
+				print("smoke: music · ready=%s · track %s · mode %s · step %d · voices peak %d · out peak %.3f · time %.1f s · render cost %.0f%% of realtime · fps %.0f" % [str(Music.ready_for_smoke), Music.track_name(), Music.mode(), Music.step(), Music.voices_peak, Music.out_peak, Music._t(), 100.0 * Music.render_usec / 1e6 / maxf(0.1, Music._t()), Engine.get_frames_per_second()])
 				var fld: Dictionary = belt.field_at(ship.true_pos())
 				var nf: Dictionary = belt.nearest_field(ship.true_pos())
 				print("smoke: fields %d · in %s · nearest %s at %.0f · dish aim yaw=%.2f pitch=%.2f aimed=%s" % [belt._fields.size(), str(fld.get("name", "-")), str(nf.get("name", "-")), float(nf.get("edge", 0.0)), ship.aim_yaw, ship.aim_pitch, str(ship.aimed)])
