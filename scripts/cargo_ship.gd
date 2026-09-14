@@ -85,6 +85,24 @@ func _ready() -> void:
 		_build_hull()
 
 
+var _engine_lights: Array = []
+
+
+## The hyperspace pose, applied to the rendered hull only (the HTML moves and stretches the station group the same way):
+## pushed forward along the nose and stretched from the engines, never back toward the camera; the engine glows gain.
+func set_warp_pose(offset: float, stretch: float, gain: float) -> void:
+	if model:
+		model.position = Vector3(offset + (stretch - 1.0) * 3550.0, 0.0, 0.0)
+		model.scale = Vector3(stretch, 1.0, 1.0)
+	for l in _engine_lights:
+		l.light_energy = 3.0 * gain
+		l.omni_range = 900.0 * min(2.0, gain)
+
+
+func clear_warp_pose() -> void:
+	set_warp_pose(0.0, 1.0, 1.0)
+
+
 ## Astra's carrier: the hull, interior, glass and emissive meshes plus named markers (pads, mouths, engines, dish mount,
 ## drone docks, drop pad, bridge windows), all in this node's frame (nose +X, hangar along Z). Two warm lights inside
 ## the hangar and the engine glows are added here, as the HTML does on install.
@@ -116,7 +134,8 @@ func _load_model() -> bool:
 		glow.light_energy = 3.0
 		glow.omni_range = 900.0
 		glow.position = e + Vector3(-100, 0, 0)
-		add_child(glow)
+		model.add_child(glow)   # under the model, so the hyperspace stretch carries the engine glows with the hull
+		_engine_lights.append(glow)
 	var dy := model.find_child("dish_yaw", true, false)
 	var dp := model.find_child("dish_pitch", true, false)
 	var fc := model.find_child("focus", true, false)

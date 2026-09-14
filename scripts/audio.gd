@@ -8,7 +8,7 @@ extends Node
 
 const RADIO_LEAD := 0.32
 const PA_LEAD := 1.1
-const GAIN := {"radio_on": -6.0, "radio_off": -7.0, "pa_chime": -6.0, "dock": -3.0, "chime": -6.0, "cash": -4.0, "stow": -4.0, "pickup": -7.0, "rock_break": -3.0, "hit": -3.0, "laser_on": -6.0, "laser_off": -8.0, "laser_bite": -7.0, "radar_ping": -6.0}
+const GAIN := {"radio_on": -6.0, "radio_off": -7.0, "pa_chime": -6.0, "dock": -3.0, "chime": -6.0, "cash": -4.0, "stow": -4.0, "pickup": -7.0, "rock_break": -3.0, "hit": -3.0, "laser_on": -6.0, "laser_off": -8.0, "laser_bite": -7.0, "radar_ping": -6.0, "warp_charge": -4.0, "warp_jump": -2.0}
 
 ## The continuous layers, ported from the SFX module's loops: an idle hum under a thrust roar that rises in pitch with
 ## the throttle, a boost roar on top, retro hiss while braking; a throbbing beam while the laser fires with a sizzling

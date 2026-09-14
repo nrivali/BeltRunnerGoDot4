@@ -23,6 +23,7 @@ var _dish_toast_t := -100.0
 var sun: DirectionalLight3D
 var env: Environment
 var lighting: Lighting
+var hyperspace: Hyperspace
 var menu: Menu
 var started := false   # the pilot has left the start menu
 var paused := false    # the pause menu is up: the world holds still, the HUD stays
@@ -59,6 +60,9 @@ func _ready() -> void:
 	drones.main = self
 	drones.carrier = carrier
 	add_child(drones)
+	hyperspace = Hyperspace.new()
+	hyperspace.name = "Hyperspace"
+	add_child(hyperspace)
 	hud = Hud.new()
 	add_child(hud)
 	hud.bind(ship)
@@ -638,8 +642,17 @@ func _smoke_step() -> void:
 		"warping":
 			if _phase_frame == 60:
 				_shot("smoke_warp")
-			if _phase_frame == 200 and not ship.warp.is_empty():
-				ship.warp["skip"] = true
+			# the jump runs at the frame rate: about 135 frames a second, so 245 frames is the launch (stretch and flash),
+			# 480 is deep in the tunnel with the zone already swapped underneath, 615 is the arrival snap
+			if _phase_frame == 245 and not ship.warp.is_empty():
+				_shot("smoke_hyperspace_launch")
+				print("smoke: hyperspace at %.1f s · %s · stretch=%.2f · fov=%.0f" % [ship.warp["t"], str(ship.warp["pose"]["phase"]), ship.warp["pose"]["stretch"], ship.cam.fov])
+			if _phase_frame == 480 and not ship.warp.is_empty():
+				_shot("smoke_hyperspace")
+				print("smoke: hyperspace at %.1f s · %s · loaded=%s · coverage=%.2f · fov=%.0f" % [ship.warp["t"], str(ship.warp["pose"]["phase"]), str(ship.warp["loaded"]), ship.warp["pose"]["coverage"], ship.cam.fov])
+			if _phase_frame == 615 and not ship.warp.is_empty():
+				_shot("smoke_hyperspace_arrival")
+				print("smoke: hyperspace at %.1f s · %s · stretch=%.2f · offset=%.0f" % [ship.warp["t"], str(ship.warp["pose"]["phase"]), ship.warp["pose"]["stretch"], ship.warp["pose"]["offset"]])
 			if ship.warp.is_empty() and zone["hub"]:
 				print("smoke: arrived at the Hub · cut=%s carrier_dist_to_hold=%.0f rocks=%d" % [str(ship.cut.get("mode", "none")), carrier.true_pos.distance_to(Data.HOLD_PARK), belt.count])
 				_next("arrival")

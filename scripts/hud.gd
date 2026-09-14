@@ -1549,7 +1549,7 @@ func update(ship: Ship, belt: Belt, carrier: CargoShip) -> void:
 	if in_cut:
 		if not ship.warp.is_empty():
 			var z: Dictionary = ship.warp["z"]
-			_caption.text = ("JUMP · %s · %s LY · SPACE SKIPS" % [str(z["name"]), str(Data.zone_ly(zone, z))]).to_upper()
+			_caption.text = ("JUMP · %s · %s LY · SPACE SKIPS" % [str(z["name"]), str(ship.warp.get("ly", Data.zone_ly(zone, z)))]).to_upper()
 		elif ship.cut["mode"] == "hold":
 			_caption.text = ("ARRIVAL · %s · SPACE SKIPS" % str(zone.get("colony", "the colony"))).to_upper()
 		else:

@@ -13,6 +13,19 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 10 — the hyperspace jump
+
+| Piece | Where | Status |
+|---|---|---|
+| The timeline: charge 1.6 s, launch 0.45 s, transit 2.45 s, arrival 1.15 s, settle 0.6 s (6.25 s in all), and the pose it gives each frame: the carrier's forward offset and stretch, engine gain, tunnel coverage and flash, star trails and their length, camera field of view | `scripts/hyperspace.gd` | ported from `assets/hyperspace/hyperspace.js` sample() |
+| The tunnel: a full-screen canvas shader (noise clouds and filaments twisting down a depth field, a haze at the centre, the flash at launch and arrival) | `scripts/hyperspace.gd` | ported shader for shader |
+| The star ribbons: 640 rays streaming from a point far down the carrier's nose, each a thin quad with a bright head and a blue tail, additive | `scripts/hyperspace.gd` (`Streaks`) | ported (drawn from a Control each frame instead of a vertex shader) |
+| The carrier pushed forward and stretched from the engines, its engine glows gaining; render only, the pad and the orbit unmoved | `scripts/cargo_ship.gd` | ported (the model node carries the pose) |
+| The exterior shot behind the carrier as it charges and jumps, ahead of it as it arrives, with the field of view following the pose; the zone swaps under the opaque tunnel; the covered edit into the hangar at the end of a belt arrival | `scripts/ship.gd` | ported (replaces the fade-to-black jump) |
+| Sounds: the charge, the warp-ready call, the jump | `scripts/ship.gd`, `scripts/audio.gd` | wired |
+
+The smoke run captures the launch, the tunnel and the arrival snap.
+
 ## Milestone 9 — the HUD and the menus
 
 The browser HUD's stylesheet, rebuilt in Godot: `scripts/ui.gd` holds the palette, the three type families the browser
@@ -117,7 +130,7 @@ hull-profile collision (the box collision stays), and the hyperspace effect (lig
 | The homeworld hanging below the colony lanes | `scripts/main.gd` | a blue sphere for now |
 | Holding station: the carrier parked off the colony, drifting gently, the ship aboard | `scripts/ship.gd`, `scripts/cargo_ship.gd` | ported |
 | The arrival: the carrier flies in from deep space and eases onto station, camera riding behind it | `scripts/ship.gd` | ported (chase shot instead of the HTML's orbiting camera) |
-| The jump: exterior shot, fade to black while the zone swaps, arrival; Space skips | `scripts/ship.gd` | new (the HTML's hyperspace tunnel is not ported) |
+| The jump: exterior shot, the hyperspace tunnel while the zone swaps, arrival; Space skips | `scripts/ship.gd` | ported (milestone 10) |
 | The nav map (N): both zones with distance, tag, market or exclusive ores, and the Warp button | `scripts/hud.gd` | rebuilt as a panel (no chart drawing yet) |
 | The market: drifting prices, exotics premium, sell everything / hold / storage, today's prices | `scripts/game_state.gd`, `scripts/hud.gd` | ported |
 | Refuel the cargo ship's supply and restock its repair parts for credits | `scripts/game_state.gd` | ported |

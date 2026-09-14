@@ -11,8 +11,7 @@ signal map_requested
 
 const TURN := 30.0 * PI / 180.0   # yaw and pitch: 30 degrees a second at full deflection
 const REPAIR_RATE := 6.0
-const WARP_DUR := 8.6
-const WARP_LOAD_AT := 4.3   # the screen is black from 4.2 s to 5.4 s; the zone swaps underneath
+var _uncover_t := -1.0   # the short covered edit into the hangar after a belt arrival (cameraShots.uncover)
 
 var vel := Vector3.ZERO
 var throttle := 0.0
@@ -226,6 +225,10 @@ func toggle_torch() -> void:
 
 func tick(dt: float) -> void:
 	torch.visible = torch_on and not docked and warp.is_empty() and visible
+	if _uncover_t >= 0.0:
+		_uncover_t += dt
+		if _uncover_t > 0.5:
+			_uncover_t = -1.0
 	if not warp.is_empty():
 		if Input.is_action_just_pressed("skip"):
 			warp["skip"] = true
@@ -655,34 +658,54 @@ func start_warp(z: Dictionary) -> void:
 		return
 	if z["id"] == main.zone["id"]:
 		return
-	warp = {"z": z, "t": 0.0, "loaded": false, "skip": false, "from_hold": hold}
+	warp = {"z": z, "t": 0.0, "loaded": false, "skip": false, "from_hold": hold, "pose": Hyperspace.sample(0.0), "voiced": false, "jumped": false, "ly": Data.zone_ly(main.zone, z)}
 	docked_changed.emit(false)
 	Audio.sfx("chime")
-	get_tree().create_timer(0.4).timeout.connect(func(): if not warp.is_empty(): Audio.voice("warp_ready"))
+	Audio.sfx("warp_charge")
 	toast.emit("Jump · %s · %s ly · Space skips" % [z["name"], str(Data.zone_ly(main.zone, z))], false)
 
 
-## 0 = clear, 1 = black: the HUD's fade for the jump.
+## 0 = clear, 1 = black: the HUD's fade. The tunnel hides the zone swap itself; the fade is the covered edit from the
+## exterior shot into the hangar at the end of a belt arrival, and the uncover once the ship is on its pad.
 func warp_fade() -> float:
-	if warp.is_empty():
-		return 0.0
-	var t: float = warp["t"]
-	if warp["loaded"]:
-		return 1.0 - smoothstep(WARP_LOAD_AT + 1.1, WARP_LOAD_AT + 2.3, t) if not warp["skip"] else 0.0
-	return smoothstep(WARP_LOAD_AT - 1.2, WARP_LOAD_AT, t)
+	if not warp.is_empty():
+		var z: Dictionary = warp["z"]
+		if z["hub"] or warp["skip"]:
+			return 0.0
+		return Hyperspace.cover(float(warp["t"]))
+	if _uncover_t >= 0.0:
+		return Hyperspace.uncover(_uncover_t)
+	return 0.0
 
 
+## The jump (warpCutUpdate): the charge, the warp_ready call, the jump itself, the zone swap under the opaque tunnel,
+## the carrier's stretch and offset, then the arrival; Space skips straight to the arrival.
 func _warp_update(dt: float) -> void:
 	var W := warp
 	W["t"] = float(W["t"]) + dt
+	var t: float = W["t"]
+	var pose := Hyperspace.sample(t)
+	W["pose"] = pose
 	var z: Dictionary = W["z"]
-	if not W["loaded"] and (W["skip"] or float(W["t"]) >= WARP_LOAD_AT):
+	if not W["skip"] and not W["voiced"] and t >= 0.4:
+		W["voiced"] = true
+		Audio.voice("warp_ready")
+	if not W["skip"] and not W["jumped"] and t >= Hyperspace.CHARGE:
+		W["jumped"] = true
+		Audio.sfx("warp_jump")
+	if not W["loaded"] and (W["skip"] or t >= Hyperspace.TRANSIT_AT):
 		W["loaded"] = true
 		docked = false
 		hold = false
 		cut = {}
-		main.warp_load(z)   # swaps the zone and places the carrier and ship for the arrival
-	if W["loaded"] and (W["skip"] or float(W["t"]) >= WARP_DUR):
+		main.warp_load(z)   # swaps the zone and places the carrier and ship for the arrival; the tunnel is opaque here
+	carrier.set_warp_pose(float(pose["offset"]), float(pose["stretch"]), float(pose["gain"]))
+	if W["skip"] or bool(pose["done"]):
+		carrier.clear_warp_pose()
+		main.hyperspace.reset()
+		cam.fov = 62.0
+		if not z["hub"] and not W["skip"]:
+			_uncover_t = 0.0
 		warp = {}
 		main.warp_done(z)
 
@@ -796,7 +819,15 @@ func _toggle_overcharge() -> void:
 func update_camera(dt: float) -> void:
 	var s := Data.SHIP_SCALE
 	if not warp.is_empty():
-		_carrier_shot(Vector3(-12000.0, 3200.0, 6900.0), Vector3(2400.0, 0.0, 0.0))
+		# the exterior shot: behind and beside the carrier as it charges and jumps, ahead of it as it arrives
+		var arriving: bool = warp["loaded"]
+		var pose: Dictionary = warp["pose"]
+		if arriving:
+			_carrier_shot(Vector3(12500.0, 3600.0, 7200.0), Vector3(600.0, 0.0, 0.0))
+		else:
+			_carrier_shot(Vector3(-12000.0, 3200.0, 6900.0), Vector3(2400.0, 0.0, 0.0))
+		cam.fov = float(pose["fov"])
+		main.hyperspace.update(pose, float(warp["t"]), cam, carrier.nose())
 		return
 	if not cut.is_empty():
 		var mode: String = cut["mode"]
