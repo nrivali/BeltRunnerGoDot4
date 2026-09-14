@@ -177,6 +177,10 @@ func wipe_save() -> void:
 
 
 func _setting_changed(key: String, value: Variant) -> void:
+	if State.settings.get(key) == value:
+		return
+	if _smoke:
+		print("smoke: setting %s = %s (frame %d, phase %s)" % [key, str(value), _frame, _phase])
 	State.settings[key] = value
 	match key:
 		"hud":
@@ -350,8 +354,10 @@ func warp_done(z: Dictionary) -> void:
 		hud.toast("Arrived · %s" % z["name"], false)
 
 
-func spawn_pickup(ore: String, units: float, at: Vector3, drift: Vector3) -> void:
-	pickups.add_child(Pickup.make(ore, units, at, drift))
+func spawn_pickup(ore: String, units: float, at: Vector3, drift: Vector3) -> Pickup:
+	var p := Pickup.make(ore, units, at, drift)
+	pickups.add_child(p)
+	return p
 
 
 ## A rock breaks (the ship's laser or the cargo ship's dish): its ore comes loose as lumps for the ship or the drones to
@@ -585,8 +591,34 @@ func _smoke_step() -> void:
 				print("smoke: on the pad · local=(%.0f, %.0f, %.0f) park=%s" % [lp.x, lp.y, lp.z, str(CargoShip.park_local(ship.dock_side))])
 				_shot("smoke_pad")
 				hud.toggle_inventory()   # the inventory beside the services panel: both grids
+			if _phase_frame == 100:
+				# the drag and drop, driven as the viewport would: a storage stack dropped on the hold grid, then a hold stack
+				# dropped on the storage grid, then a hold stack let go outside the grids (jettisoned into the hangar)
+				var st: Array = get_tree().get_nodes_in_group("inv_store").filter(func(s): return not s.is_empty())
+				var hs: Array = get_tree().get_nodes_in_group("inv_hold")
+				if st.size() > 0 and hs.size() > 0:
+					var h0 := State.cargo_total()
+					hs[0]._drop_data(Vector2.ZERO, {"k": st[0].k, "u": st[0].u, "store": true})
+					print("smoke: drag storage -> hold · hold %.0f -> %.0f · store=%.0f" % [h0, State.cargo_total(), State.store_total()])
+			if _phase_frame == 110:
+				var hs: Array = get_tree().get_nodes_in_group("inv_hold").filter(func(s): return not s.is_empty())
+				var ss: Array = get_tree().get_nodes_in_group("inv_store")
+				if hs.size() > 0 and ss.size() > 0:
+					var s0 := State.store_total()
+					ss[0]._drop_data(Vector2.ZERO, {"k": hs[0].k, "u": hs[0].u, "store": false})
+					print("smoke: drag hold -> storage · store %.0f -> %.0f · hold=%.0f" % [s0, State.store_total(), State.cargo_total()])
+			if _phase_frame == 115:
+				var st: Array = get_tree().get_nodes_in_group("inv_store").filter(func(s): return not s.is_empty())
+				var hs: Array = get_tree().get_nodes_in_group("inv_hold")
+				if st.size() > 0 and hs.size() > 0:
+					hs[0]._drop_data(Vector2.ZERO, {"k": st[0].k, "u": min(st[0].u, 10.0), "store": true})   # a small stack to throw away
 			if _phase_frame == 120:
 				_shot("smoke_inventory")
+				var hs: Array = get_tree().get_nodes_in_group("inv_hold").filter(func(s): return not s.is_empty())
+				if hs.size() > 0:
+					var before := pickups.get_child_count()
+					hud._jettison(hs[0].k, hs[0].u)   # what a drag let go outside the grids does
+					print("smoke: jettison · hold=%.0f · lumps %d -> %d · no_pick=%.0f" % [State.cargo_total(), before, pickups.get_child_count(), pickups.get_child(pickups.get_child_count() - 1).no_pick])
 				hud.toggle_inventory()
 			if _phase_frame % 600 == 0:
 				print("smoke: waiting on the drone · %s · stowed %.0f" % [str(drones.stats()), State.drone_units])

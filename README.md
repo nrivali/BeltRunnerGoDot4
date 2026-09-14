@@ -27,11 +27,17 @@ and the custom controls; `scripts/hud.gd` is the layout; `scripts/menu.gd` is th
 | The hint bar above the status pane (approach control, auto-dock, hold to mine, cutting…), the cargo-full notice, toasts with an amber or red edge, the vignette, the red flash on a hull knock, the version tag | `scripts/hud.gd` | ported |
 | Flight controls list bottom-left with key chips (C hides it, remembered in the save) | `scripts/hud.gd` | rebuilt |
 | Cargo ship services: a glass side panel on the right with balance, gauges, the market table at the Hub, the hold, refit rows with level pips and price buttons, Depart / Warp to the Hub / Hide (F) and Reset save | `scripts/hud.gd` | rebuilt to #station |
-| Inventory: a glass side panel on the left with credits, the hold's slot grid (ore colour along the top, ✕ jettisons) and the storage grid while docked (click a stack to move it) | `scripts/hud.gd`, `scripts/game_state.gd` | rebuilt to #inv (click instead of drag and drop) |
+| Inventory: a glass side panel on the left with credits, the hold's slot grid (ore colour along the top, ✕ jettisons) and the storage grid while docked | `scripts/hud.gd`, `scripts/game_state.gd` | rebuilt to #inv |
+| Drag and drop: a hold stack dragged onto the storage grid is stowed, a storage stack dragged onto the hold grid comes back aboard, a hold stack let go anywhere else is jettisoned (it drifts off behind the ship and cannot be scooped up for a minute); a double-click moves a stack across too; the slots that would take the stack light up amber | `scripts/hud.gd` (`Hud.Slot`), `scripts/pickup.gd` | ported from wireInventoryDrag / stowStack / takeStack / jettisonSlot with Godot's own drag-and-drop (`_get_drag_data`, `_can_drop_data`, `_drop_data`, `NOTIFICATION_DRAG_END`) |
 | Nav computer: the chart drawn as the browser's SVG (grid, dashed lanes with distances, zone nodes), the picked zone's details and the warp button | `scripts/hud.gd` (`Ui.Chart`) | rebuilt |
 | Start menu at launch, pause menu on Escape: Continue / Resume, New game (click twice to wipe), Controls, Settings (sound, volume, HUD size, tutorial restart, wipe save), Quit | `scripts/menu.gd`, `scripts/main.gd` | rebuilt to #intro; settings saved with the game |
 
-The smoke run now also captures the inventory, the nav map and the three menu pages (fifteen screenshots).
+The smoke run now also captures the inventory, the nav map and the three menu pages (fifteen screenshots), and
+drives the drag and drop the way the viewport would (storage to hold, hold to storage, a stack let go outside).
+
+The hold grid is always sorted most valuable first with full stacks before part stacks, exactly as the browser re-sorts
+its slot order on every read, so dragging a hold stack onto another hold slot needs no bookkeeping: the pour or swap the
+browser does is undone by that sort a moment later in both games.
 
 ## Milestone 8 — lighting
 

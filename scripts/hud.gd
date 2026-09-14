@@ -92,6 +92,168 @@ var _ring_names: Array = []
 
 
 ## Pulsing amber frames round the HUD pieces the tutorial is talking about (.tut-ring).
+## An inventory slot (.slot): a stack in the hold or in the cargo ship's storage, or an empty one. Stacks drag, as in
+## the browser: a hold stack onto the storage grid stows it, a storage stack onto the hold grid takes it back, a hold
+## stack dropped on another hold slot pours in or swaps (the grid is always sorted, so it lands where it belongs), and a
+## hold stack let go anywhere else is jettisoned. A double-click moves a stack across too; ✕ jettisons a hold stack.
+class Slot extends PanelContainer:
+	var hud: Hud
+	var k := ""
+	var u := 0.0
+	var store := false
+	var docked := false
+	var _sb: StyleBoxFlat
+	var _dragging := false
+	var _over := false
+
+	func _init(h: Hud, st: Dictionary, in_store: bool, is_docked: bool) -> void:
+		hud = h
+		store = in_store
+		docked = is_docked
+		if not st.is_empty():
+			k = st["k"]
+			u = st["u"]
+		custom_minimum_size = Vector2(0, 92)
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		add_to_group("inv_store" if store else "inv_hold")
+		_build()
+
+	func is_empty() -> bool:
+		return k == ""
+
+	## The stack's face: name, units of the stack, value at Hub prices.
+	static func visual(ore: String, units: float) -> VBoxContainer:
+		var o: Dictionary = Data.ORES[ore]
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 4)
+		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(Ui.label(o["name"], "body_semi", 14, Ui.TEXT))
+		v.add_child(Ui.label("%d / %d" % [floori(units), roundi(Data.STACK)], "mono", 14, Ui.TEXT))
+		v.add_child(Ui.label("%s cr" % Data.fmt(units * State.price(ore)), "mono", 12, Ui.DIM))
+		return v
+
+	func _build() -> void:
+		_sb = Ui.flat_box(Ui.PANEL2, Ui.LINE2, 1, 10)
+		_sb.content_margin_left = 12
+		_sb.content_margin_right = 12
+		if is_empty():
+			_sb.bg_color = Color(Ui.PANEL2, 0.45)
+			_sb.border_color = Color(Ui.LINE2, 0.45)
+			add_theme_stylebox_override("panel", _sb)
+			var e := Ui.label("EMPTY", "body", 12, Color(Ui.DIM, 0.6), 1.5)
+			e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			e.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			add_child(e)
+			return
+		# the ore's colour along the top edge: an outer panel in that colour showing through a 2 px top margin
+		var ob := Ui.flat_box(Data.ORES[k]["color"])
+		ob.content_margin_top = 2
+		add_theme_stylebox_override("panel", ob)
+		_sb.border_width_top = 0
+		var inner := PanelContainer.new()
+		inner.add_theme_stylebox_override("panel", _sb)
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.custom_minimum_size = Vector2(0, 90)
+		inner.add_child(Slot.visual(k, u))
+		# a plain Control does not lay its children out, so the ✕ can sit in the corner
+		var overlay := Control.new()
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.add_child(overlay)
+		add_child(inner)
+		if not store:
+			var x := Button.new()
+			x.text = "✕"
+			x.focus_mode = Control.FOCUS_NONE
+			x.tooltip_text = "Jettison this stack"
+			x.add_theme_font_override("font", Ui.font("body"))
+			x.add_theme_font_size_override("font_size", 11)
+			x.add_theme_color_override("font_color", Ui.MUTED)
+			x.add_theme_color_override("font_hover_color", Ui.RED)
+			for s in ["normal", "hover", "pressed"]:
+				x.add_theme_stylebox_override(s, Ui.flat_box(Ui.PANEL, Ui.RED if s == "hover" else Ui.LINE2, 1, 0))
+			x.custom_minimum_size = Vector2(20, 20)
+			x.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+			x.offset_left = -14
+			x.offset_top = -6
+			x.offset_right = 6
+			x.offset_bottom = 14
+			x.pressed.connect(func(): hud._jettison(k, u))
+			overlay.add_child(x)
+		mouse_default_cursor_shape = Control.CURSOR_DRAG
+		if docked:
+			tooltip_text = "Drag to your hold (or double-click) to take it back aboard" if store else "Drag to the storage grid (or double-click) to stow it aboard the cargo ship"
+		elif not store:
+			tooltip_text = "Drag it out of the panel and let go to drop it into space"
+
+	## .slot.over: the amber edge and tint on a slot that would take the stack being dragged.
+	func set_over(on: bool) -> void:
+		if _over == on:
+			return
+		_over = on
+		if on:
+			_sb.border_color = Ui.AMBER
+			_sb.bg_color = Color(Ui.AMBER, 0.12)
+		elif is_empty():
+			_sb.border_color = Color(Ui.LINE2, 0.45)
+			_sb.bg_color = Color(Ui.PANEL2, 0.45)
+		else:
+			_sb.border_color = Ui.LINE2
+			_sb.bg_color = Ui.PANEL2
+
+	static func is_stack(data: Variant) -> bool:
+		return typeof(data) == TYPE_DICTIONARY and data.has("k") and data.has("store")
+
+	## Storage stacks only ever come back to the hold; hold stacks go to the storage grid or stay in the hold grid.
+	func _accepts(data: Variant) -> bool:
+		if not is_stack(data):
+			return false
+		if bool(data["store"]):
+			return not store
+		return true
+
+	func _get_drag_data(_at: Vector2) -> Variant:
+		if is_empty() or (store and not docked):
+			return null
+		var pv := PanelContainer.new()
+		var sb := Ui.flat_box(Ui.PANEL2, Ui.AMBER, 1, 10)
+		sb.content_margin_left = 12
+		sb.content_margin_right = 12
+		pv.add_theme_stylebox_override("panel", sb)
+		pv.add_child(Slot.visual(k, u))
+		pv.size = size
+		pv.modulate.a = 0.85
+		set_drag_preview(pv)
+		_dragging = true
+		modulate.a = 0.35
+		return {"k": k, "u": u, "store": store}
+
+	func _can_drop_data(_at: Vector2, data: Variant) -> bool:
+		return _accepts(data)
+
+	func _drop_data(_at: Vector2, data: Variant) -> void:
+		hud.drop_stack(data, store)
+
+	func _gui_input(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.pressed and ev.double_click and ev.button_index == MOUSE_BUTTON_LEFT and docked and not is_empty():
+			if store:
+				hud._take_stack(k, u)
+			else:
+				hud._stow_stack(k, u)
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_DRAG_BEGIN:
+			var d = get_viewport().gui_get_drag_data()
+			set_over(is_stack(d) and bool(d["store"]) != store and _accepts(d))
+		elif what == NOTIFICATION_DRAG_END:
+			set_over(false)
+			if _dragging:
+				_dragging = false
+				modulate.a = 1.0
+				if not store and not is_drag_successful():
+					hud._jettison(k, u)   # let go outside the grids: into space with it
+
+
 class RingOverlay extends Control:
 	var rects: Array = []
 	var t := 0.0
@@ -862,7 +1024,7 @@ func _build_inventory() -> void:
 	scroll.add_child(_inv_body)
 	v.add_child(Ui.spacer(false, 16))
 	var foot := _hbox(14)
-	foot.add_child(Ui.para("Each slot holds one stack of up to %d units of one ore, sorted most valuable first. Click ✕ to jettison a stack. Dock with the cargo ship to stow stacks in its storage; sell at the Hub." % roundi(Data.STACK), 13, Ui.DIM))
+	foot.add_child(Ui.para("Each slot holds one stack of up to %d units of one ore, sorted most valuable first. Drag one stack onto another to pour them together; drag one out of the panel and let go (or press ✕) to drop it into space. Dock with the cargo ship to stow stacks in its storage; sell at the Hub." % roundi(Data.STACK), 13, Ui.DIM))
 	var cb := Ui.button("Close", func(): toggle_inventory())
 	cb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	foot.add_child(cb)
@@ -881,82 +1043,29 @@ func toggle_inventory() -> void:
 		_refresh_inventory()
 
 
-## One inventory slot (.slot): the ore's colour along the top edge, its name, the stack size, its value; ✕ jettisons.
-## `store` slots take the stack back aboard on a click; hold slots stow theirs while docked.
-func _slot(st: Dictionary, store: bool, docked: bool) -> PanelContainer:
-	var p := PanelContainer.new()
-	var sb := Ui.flat_box(Ui.PANEL2, Ui.LINE2, 1, 10)
-	sb.content_margin_left = 12
-	sb.content_margin_right = 12
-	p.custom_minimum_size = Vector2(0, 92)
-	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if st.is_empty():
-		sb.bg_color = Color(Ui.PANEL2, 0.45)
-		sb.border_color = Color(Ui.LINE2, 0.45)
-		p.add_theme_stylebox_override("panel", sb)
-		var e := Ui.label("EMPTY", "body", 12, Color(Ui.DIM, 0.6), 1.5)
-		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		e.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		p.add_child(e)
-		return p
-	var k: String = st["k"]
-	var u: float = st["u"]
-	var o: Dictionary = Data.ORES[k]
-	# the ore's colour along the top edge: an outer panel in that colour showing through a 2 px top margin
-	var ob := Ui.flat_box(o["color"])
-	ob.content_margin_top = 2
-	p.add_theme_stylebox_override("panel", ob)
-	sb.border_width_top = 0
-	var inner := PanelContainer.new()
-	inner.add_theme_stylebox_override("panel", sb)
-	inner.mouse_filter = Control.MOUSE_FILTER_PASS
-	inner.custom_minimum_size = Vector2(0, 90)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(Ui.label(o["name"], "body_semi", 14, Ui.TEXT))
-	v.add_child(Ui.label("%d / %d" % [floori(u), roundi(Data.STACK)], "mono", 14, Ui.TEXT))
-	v.add_child(Ui.label("%s cr" % Data.fmt(u * State.price(k)), "mono", 12, Ui.DIM))
-	inner.add_child(v)
-	# a plain Control does not lay its children out, so the ✕ can sit in the corner
-	var overlay := Control.new()
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_child(overlay)
-	p.add_child(inner)
-	if not store:
-		var x := Button.new()
-		x.text = "✕"
-		x.focus_mode = Control.FOCUS_NONE
-		x.tooltip_text = "Jettison this stack"
-		x.add_theme_font_override("font", Ui.font("body"))
-		x.add_theme_font_size_override("font_size", 11)
-		x.add_theme_color_override("font_color", Ui.MUTED)
-		x.add_theme_color_override("font_hover_color", Ui.RED)
-		for s in ["normal", "hover", "pressed"]:
-			x.add_theme_stylebox_override(s, Ui.flat_box(Ui.PANEL, Ui.RED if s == "hover" else Ui.LINE2, 1, 0))
-		x.custom_minimum_size = Vector2(20, 20)
-		x.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		x.offset_left = -14
-		x.offset_top = -6
-		x.offset_right = 6
-		x.offset_bottom = 14
-		x.pressed.connect(func(): _jettison(k, u))
-		overlay.add_child(x)
-	if docked:
-		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		p.tooltip_text = "Click to take it back aboard" if store else "Click to stow it aboard the cargo ship"
-		p.gui_input.connect(func(ev: InputEvent):
-			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
-				if store:
-					_take_stack(k, u)
-				else:
-					_stow_stack(k, u))
-	return p
+## A stack dropped on a slot: from the storage onto the hold grid it comes back aboard, from the hold onto the storage
+## grid it is stowed; a hold stack on a hold slot pours or swaps in the browser, and the sorted grid already shows that.
+func drop_stack(data: Dictionary, onto_store: bool) -> void:
+	var from_store: bool = data["store"]
+	if from_store and not onto_store:
+		_take_stack(data["k"], data["u"])
+	elif not from_store and onto_store:
+		_stow_stack(data["k"], data["u"])
 
 
+## Jettison a stack (jettisonSlot): it leaves the hold and drifts off behind the ship as a lump that cannot be pulled
+## back in for a minute, so a dropped stack is not scooped straight up again.
 func _jettison(k: String, u: float) -> void:
 	var dropped := State.jettison(k, u)
 	if dropped > 0.5:
+		if _ship and _ship.main:
+			var back: Vector3 = -_ship.forward()
+			var at: Vector3 = _ship.position + back * 40.0 * Data.SHIP_SCALE + Vector3(randf_range(-10, 10), randf_range(-10, 10), randf_range(-10, 10))
+			var drift: Vector3 = _ship.vel + back * 45.0 + Vector3(randf_range(-8, 8), randf_range(-8, 8), randf_range(-8, 8))
+			var p: Pickup = _ship.main.spawn_pickup(k, dropped, at, drift)
+			if p:
+				p.no_pick = 60.0
+		Audio.sfx("stow", -6.0)
 		toast("Jettisoned %d %s" % [roundi(dropped), Data.ORES[k]["name"]], false)
 	_inv_sig = ""
 	_refresh_inventory()
@@ -1026,7 +1135,7 @@ func _refresh_inventory() -> void:
 		c.queue_free()
 	var g := _grid(3)
 	for i in ns:
-		g.add_child(_slot(hold_st[i] if i < hold_st.size() else {}, false, docked))
+		g.add_child(Slot.new(self, hold_st[i] if i < hold_st.size() else {}, false, docked))
 	_inv_body.add_child(g)
 	var can_deposit: bool = docked and State.cargo_total() > 0.5
 	var row := _hbox(10)
@@ -1052,13 +1161,13 @@ func _refresh_inventory() -> void:
 		_inv_body.add_child(xh)
 		var sg := _grid(3)
 		for i in Data.STORE_SLOTS:
-			sg.add_child(_slot(store_st[i] if i < store_st.size() else {}, true, true))
+			sg.add_child(Slot.new(self, store_st[i] if i < store_st.size() else {}, true, true))
 		_inv_body.add_child(sg)
 		if su > 0:
 			_inv_body.add_child(_total_row("Storage value at Hub prices", "%s cr" % Data.fmt(State.value_of(State.store))))
 		if su > 0 and us > 0:
 			_inv_body.add_child(_total_row("Everything aboard", "%s cr" % Data.fmt(State.value_of(State.store) + State.value_of(State.cargo)), false))
-		_inv_body.add_child(Ui.para("Click a stack to move it between the two grids. The storage rides with the cargo ship and sells at the Hub.", 12, Ui.DIM))
+		_inv_body.add_child(Ui.para("Drag stacks between the two grids, or double-click one, to move it. The storage rides with the cargo ship and sells at the Hub.", 12, Ui.DIM))
 	else:
 		_inv_body.add_child(_total_row("Cargo ship storage", "%d / %d slots · dock to transfer" % [su, Data.STORE_SLOTS], false, Ui.TEXT))
 

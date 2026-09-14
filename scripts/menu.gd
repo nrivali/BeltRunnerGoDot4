@@ -31,6 +31,7 @@ var _tut_btn: Ui.ChamferButton
 var _wipe_btn: Ui.ChamferButton
 var _wipe_armed := false
 var _title_eyebrow: Label
+var _syncing := false
 
 const CONTROLS := [
 	["Mouse", "Aim the ship: cursor left or right of centre yaws, above or below pitches."],
@@ -150,6 +151,7 @@ func _slider(minv: float, maxv: float, step: float) -> HSlider:
 	s.min_value = minv
 	s.max_value = maxv
 	s.step = step
+	s.value = 100.0   # the slider's own default (0) would clamp to the minimum and read as a change: both start at 100 %
 	s.custom_minimum_size.x = 150
 	s.focus_mode = Control.FOCUS_NONE
 	var grabber := StyleBoxFlat.new()
@@ -172,7 +174,7 @@ func _build_settings() -> VBoxContainer:
 	var vh := HBoxContainer.new()
 	vh.add_theme_constant_override("separation", 10)
 	_vol = _slider(0, 100, 1)
-	_vol.value_changed.connect(func(x: float): _vol_t.text = "%d%%" % roundi(x); setting_changed.emit("volume", x / 100.0))
+	_vol.value_changed.connect(func(x: float): _vol_t.text = "%d%%" % roundi(x); if not _syncing: setting_changed.emit("volume", x / 100.0))
 	vh.add_child(_vol)
 	_vol_t = Ui.label("100%", "mono", 11, Ui.MUTED)
 	_vol_t.custom_minimum_size.x = 34
@@ -182,7 +184,7 @@ func _build_settings() -> VBoxContainer:
 	var hh := HBoxContainer.new()
 	hh.add_theme_constant_override("separation", 10)
 	_hud = _slider(70, 160, 5)
-	_hud.value_changed.connect(func(x: float): _hud_t.text = "%d%%" % roundi(x); setting_changed.emit("hud", x / 100.0))
+	_hud.value_changed.connect(func(x: float): _hud_t.text = "%d%%" % roundi(x); if not _syncing: setting_changed.emit("hud", x / 100.0))
 	hh.add_child(_hud)
 	_hud_t = Ui.label("100%", "mono", 11, Ui.MUTED)
 	_hud_t.custom_minimum_size.x = 34
@@ -268,13 +270,16 @@ func _render() -> void:
 	_show_page("main")
 
 
+## The controls show the saved settings; nothing they emit while being set this way counts as a change.
 func _sync_settings() -> void:
 	var s: Dictionary = State.settings
+	_syncing = true
 	_sound_btn.text = "ON" if bool(s.get("sound", true)) else "OFF"
-	_vol.set_value_no_signal(roundi(float(s.get("volume", 1.0)) * 100.0))
+	_vol.value = roundi(float(s.get("volume", 1.0)) * 100.0)
 	_vol_t.text = "%d%%" % roundi(float(s.get("volume", 1.0)) * 100.0)
-	_hud.set_value_no_signal(roundi(float(s.get("hud", 1.0)) * 100.0))
+	_hud.value = roundi(float(s.get("hud", 1.0)) * 100.0)
 	_hud_t.text = "%d%%" % roundi(float(s.get("hud", 1.0)) * 100.0)
+	_syncing = false
 	_tut_btn.text = "RUN AGAIN"
 	_wipe_btn.text = "WIPE SAVE"
 	_wipe_armed = false

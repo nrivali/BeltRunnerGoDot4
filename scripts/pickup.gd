@@ -11,6 +11,7 @@ var ore: String
 var units: float
 var vel := Vector3.ZERO
 var age := 0.0
+var no_pick := 0.0   # seconds before the ship can pull it in (a jettisoned stack drifts for a minute first)
 var claimed = null   # the collector drone heading for this lump, so two never chase the same one
 
 static var _mesh: SphereMesh
@@ -44,6 +45,11 @@ func tick(dt: float, ship_pos: Vector3) -> bool:
 	age += dt
 	var to_ship := ship_pos - position
 	var d := to_ship.length()
+	if age < no_pick:
+		vel *= exp(-0.4 * dt)
+		position += vel * dt
+		rotate_y(1.5 * dt)
+		return false
 	if d < GRAB_RANGE:
 		var took: float = State.add_cargo(ore, units)
 		if took > 0.0:
