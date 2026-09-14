@@ -24,6 +24,7 @@ var sun: DirectionalLight3D
 var env: Environment
 var lighting: Lighting
 var hyperspace: Hyperspace
+var sparks: Sparks
 var menu: Menu
 var started := false   # the pilot has left the start menu
 var paused := false    # the pause menu is up: the world holds still, the HUD stays
@@ -45,6 +46,9 @@ func _ready() -> void:
 	pickups = Node3D.new()
 	pickups.name = "Pickups"
 	add_child(pickups)
+	sparks = Sparks.new()
+	sparks.name = "Sparks"
+	add_child(sparks)
 	carrier = CargoShip.new()
 	carrier.name = "CargoShip"
 	carrier.main = self
@@ -262,6 +266,9 @@ func load_zone(z: Dictionary) -> void:
 	hud.zone = z
 	for p in pickups.get_children():
 		p.queue_free()
+	if sparks:
+		sparks.clear()
+	ship.near_rocks = PackedInt32Array()   # rock ids from the zone being left
 	if drones:
 		drones.reset()
 	carrier.dish["rock"] = -1
@@ -380,6 +387,9 @@ func break_rock(i: int, by_dish: bool) -> void:
 	var v := belt.rock_vel(i)
 	var bi := belt.belt_of[i]
 	var splits: bool = c > 0
+	sparks.burst(p, min(600, 80 + roundi(r * 1.2)), 160.0 + r * 0.6, Color("#ffb060"), 1.5)
+	if p.distance_to(ship.true_pos()) < 60000.0:
+		belt.spawn_scrap(i, v)   # the scrap of a break the pilot can see
 	var total := belt.kill(i)
 	var loose: float = total * 0.25 if splits else total
 	var near: bool = p.distance_to(ship.true_pos()) < 3000.0
@@ -469,7 +479,16 @@ func _process(dt: float) -> void:
 	if ship.docked and not ship.hold:
 		ship.position += moved
 	ship.tick(dt)
-	belt.tick(dt)   # the rails' drift time for the rock shader, free rocks coasting, broken rocks growing back
+	belt.tick(dt, ship.near_rocks)   # the rails' drift time for the rock shader, free rocks and scrap coasting, broken rocks growing back
+	sparks.tick(dt, world_offset)
+	if Engine.get_process_frames() % 10 == 0:
+		belt.update_lod0(ship.true_pos(), ship.near_rocks)   # the rocks close to the ship draw their finest mesh
+	# the dish's beam cooks the stone where it lands (the ship's own beam sets its point from the laser)
+	var dr: int = carrier.dish["rock"]
+	if carrier.dish["firing"] and dr >= 0 and dr < belt.count:
+		belt.set_spot_heat(1, carrier.dish["hit"], 1.0, belt.radius[dr] * 0.45)
+	else:
+		belt.set_spot_heat(1, Vector3.ZERO, 0.0, 1.0)
 	Audio.engine(ship.throttle, ship.afterburning, ship.braking, ship.docked or not ship.cut.is_empty() or not ship.warp.is_empty())
 	Audio.laser(ship.firing and not ship.docked, ship.laser_on)
 	if ship.warp.is_empty():
@@ -600,7 +619,7 @@ func _smoke_step() -> void:
 				belt.set_free(_smoke_rock, Vector3.ZERO)   # a rock knocked off its rail and at rest, so the parked ship keeps the beam on it
 				var rp: Vector3 = belt.rock_pos(_smoke_rock) - world_offset
 				var dir := (rp - ship.position).normalized()
-				ship.position = rp - dir * (belt.radius[_smoke_rock] + 700.0)
+				ship.position = rp - dir * (belt.radius[_smoke_rock] + 560.0)   # close enough for the finest mesh (under six radii)
 				ship.look_at(rp, Vector3.UP)
 				ship.vel = Vector3.ZERO
 				ship.throttle = 0.0
@@ -621,7 +640,7 @@ func _smoke_step() -> void:
 		"mining":
 			if _phase_frame == 60:
 				_shot("smoke_mine")
-				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock]])
+				print("smoke: cutting %s · target=%d laser_on=%s hp=%.0f · lod0 rocks %d (target r=%.0f at %.0f) · sparks %d" % [belt.rock_name(_smoke_rock), ship.target, str(ship.laser_on), belt.hp[_smoke_rock], belt.lod0_count(), belt.radius[_smoke_rock], belt.rock_pos(_smoke_rock).distance_to(ship.true_pos()), sparks.count()])
 				print("smoke: laser loops %s" % str(Audio.loop_state()))
 			if _phase_frame == 100:
 				ship.throttle = 0.6   # a burst of throttle so the engine loops can be read
@@ -636,6 +655,7 @@ func _smoke_step() -> void:
 			if (belt.alive[_smoke_rock] == 0 and _phase_frame > 420) or _phase_frame > 1200:
 				Input.action_release("fire")
 				print("smoke: mined · rock_alive=%d pickups_left=%d cargo=%.0f fuel=%.1f fps=%.0f" % [belt.alive[_smoke_rock], pickups.get_child_count(), State.cargo_total(), State.fuel, Engine.get_frames_per_second()])
+				print("smoke: fx · sparks %d · scrap %d · lod0 rocks %d · near rocks %d" % [sparks.count(), belt.scrap_count(), belt.lod0_count(), ship.near_rocks.size()])
 				var frags: Array = []
 				for j in range(_smoke_count, belt.count):
 					frags.append("%s r=%.0f ore=%.0f" % [belt.rock_name(j), belt.radius[j], belt.amount[j]])

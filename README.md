@@ -13,6 +13,22 @@ restocks, jumps home onto the pad and quits, printing what happened at each stag
 (`smoke_launch` … `smoke_home`, plus the inventory, the nav map and the menu pages) under `user://`
 (`%APPDATA%\Godot\app_userdata\Belt Runner\`). Run it after any change.
 
+## Milestone 13 — collisions, sparks, scrap, heat, LOD 0, free look
+
+| Piece | Where | Status |
+|---|---|---|
+| Ship–rock collision: the frame's path is swept in 24-unit steps against the rocks within reach (refreshed twice a second), resolved against a slightly generous sphere; a knock above 140 u/s costs plating (0.09 a unit over), shakes the camera, flashes, sparks and sounds; hull critical warning; plating gone → the tug | `scripts/ship.gd` (`_rock_contact`, `_impact`) | ported from the rock sweep and impact() (a sphere stands in for the browser's exact mesh surface) |
+| bumpRock: a hit knocks the rock off its rail, small rocks taking the whole hit and big ones barely noticing, never faster than the ship hit it | `scripts/belt.gd` (`bump`) | ported |
+| Sparks: a burst of glowing streaks on a rock break or a hull hit, each stretched along its own velocity and thinning as it dies | `scripts/sparks.gd` | ported from SPARKS (one MultiMesh of boxes) |
+| Scrap: 5 to 16 small hot chunks off a breaking rock (4 to 12 % of its radius), coasting and spinning, cooling from white-hot over 30 s, bouncing off nearby rocks and the ship (which they shove), fading out after half an hour | `scripts/belt.gd` (`spawn_scrap`, `_tick_scrap`) | ported from spawnDebris / chunkRock |
+| Heat: a damaged rock glows red, then orange, then near-white as its health goes (pulsing slightly); fresh fragments start hot and cool over 30 s; the laser's spot glows where the ship's beam or the dish's is cooking the stone | `scripts/belt.gd` (rock shader, `_write_custom`, `set_spot_heat`) | ported from heatable() / setRockHeat; the body heat rides in the instance custom data |
+| LOD 0 up close: a rock nearer than six of its radii leaves its chunk's batch for its own node with Astra's finest mesh (back at eight); free rocks swap their node's mesh | `scripts/belt.gd` (`update_lod0`), `assets/rocks/asteroids_lod0.glb` | ported (the browser picks by projected size, 100 px) |
+| Free look: hold the right mouse button to swing the camera without turning the ship; it eases back on release | `scripts/ship.gd` | ported |
+
+Not ported: the ship's wing and fitting variants (they live in the GLB's second scene, which Godot's importer does
+not bring in), the scorch decals the beam leaves on rocks, scrap-on-scrap bounces. The smoke run reports sparks,
+scrap, LOD 0 rocks and the near-rock count at the cut.
+
 ## Milestone 12 — the Q lock and the tow tug
 
 | Piece | Where | Status |

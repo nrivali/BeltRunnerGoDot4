@@ -470,6 +470,7 @@ const CONTROL_ROWS := [
 	[["G"], "Laser overcharge on · off (needs the refit · up to ×3 damage · the beam draws fuel while it cuts)"],
 	[["↑", "↓"], "Pitch"],
 	[["LMB"], "Hold to fire the mining laser (Space or L too). It cuts only what the crosshair is on: aim the nose at a rock"],
+	[["RMB"], "Hold to look around · release to snap back"],
 	[["R"], "Radar pulse"],
 	[["Q"], "Lock the crosshair on whatever the mouse is over · hover another target and press Q to switch · otherwise press Q to release"],
 	[["F"], "Flashlight on · off in flight · cargo ship services when docked"],

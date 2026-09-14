@@ -64,6 +64,21 @@ var _hover_frame := 0
 # dry (T) calls the same tug. phase: approach, latch, haul, leave
 var tow := {}
 var disabled := false
+
+# collisions with rocks and scrap (the HTML's rock sweep and impact): the rocks within reach are refreshed twice a
+# second; each frame the ship's path is swept against them in short steps so a fast ship cannot skip through a rock
+const IMPACT_SAFE := 140.0   # normal-speed below this is a harmless bump
+var near_rocks := PackedInt32Array()
+var _near_frame := 0
+var _prev_pos := Vector3.ZERO
+var hit_cd := 0.0
+var shake := 0.0
+var _low_hull_warned := false
+
+# free look: with the right button held the mouse swings the camera instead of the ship; it eases back on release
+var look_yaw := 0.0
+var look_pitch := 0.0
+var rdown := false
 var _tug: Node3D
 var _tug_strobe: StandardMaterial3D
 var _tug_light: OmniLight3D
@@ -637,10 +652,16 @@ func tick(dt: float) -> void:
 	if towed():
 		_carrier_contact()   # the tug flies the ship; the bay's own capture docks it once it is pulled deep enough
 		return
+	_near_frame += 1
+	if _near_frame % 30 == 1:
+		near_rocks = belt.rocks_within(true_pos(), 12000.0)
+	hit_cd = max(0.0, hit_cd - dt)
+	_prev_pos = position
 	_fly(dt)
 	_carrier_contact()
 	if docked:
 		return
+	_rock_contact()
 	_tick_lock()
 	_hover_frame += 1
 	if _hover_frame % 6 == 0:
@@ -686,6 +707,15 @@ func _fly(dt: float) -> void:
 	var pitch := 0.0
 	var roll := 0.0
 	var flying := can_fly()   # nothing answers while disabled: the ship drifts until the tug comes
+	rdown = mouse_steer and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not main.hud.inv_open and not main.hud.map_open
+	if rdown:
+		# free look: the mouse swings the camera instead of the ship (the ship holds its heading)
+		look_yaw += -_shape(sx) * 2.2 * dt
+		look_pitch = clampf(look_pitch - _shape(sy) * 1.8 * dt, -1.35, 1.35)
+	else:
+		# ease the free-look camera back to straight ahead once the button is released
+		look_yaw *= exp(-4.0 * dt)
+		look_pitch *= exp(-4.0 * dt)
 	if flying and lock_kind != "":
 		# Q lock: the ship turns itself to put the locked object on the nose ray (the laser's line, not the camera's); the
 		# mouse is ignored until the lock is released (roll is still yours). Proportional: full rate beyond about seven
@@ -695,7 +725,7 @@ func _fly(dt: float) -> void:
 		var ep := atan2(L.y, Vector2(L.x, L.z).length())
 		yaw = clampf(ey * 8.0, -1.0, 1.0) * 1.2
 		pitch = clampf(ep * 8.0, -1.0, 1.0) * 1.0
-	elif flying and mouse_steer:
+	elif flying and mouse_steer and not rdown:
 		yaw = -_shape(sx)
 		pitch = -_shape(sy)
 	if flying:
@@ -764,6 +794,76 @@ func _fly(dt: float) -> void:
 	elif belt.planet_r > 0.0 and d < belt.planet_r + Data.SHIP_R:
 		vel = Vector3.ZERO
 		position += tp / d * (belt.planet_r + Data.SHIP_R - d)
+
+
+# ---- rocks and scrap: swept along this frame's path in short steps, then resolved against a slightly generous sphere
+func _rock_contact() -> void:
+	var off: Vector3 = main.world_offset
+	var tp := true_pos()
+	var prev: Vector3 = _prev_pos + off
+	var step_len := prev.distance_to(tp)
+	var k_steps: int = clampi(ceili(step_len / 24.0), 1, 64)
+	var reach := 60.0 + step_len
+	for i in near_rocks:
+		if i >= belt.count or belt.alive[i] == 0:
+			continue
+		var rp := belt.rock_pos(i)
+		var r: float = belt.radius[i] * 0.92
+		if absf(rp.x - tp.x) > r * 1.5 + reach or absf(rp.y - tp.y) > r * 1.5 + reach or absf(rp.z - tp.z) > r * 1.5 + reach:
+			continue
+		var min_d: float = r + Data.SHIP_R
+		for k in range(1, k_steps + 1):
+			var wp: Vector3 = prev.lerp(tp, float(k) / k_steps)
+			var to := wp - rp
+			var d := to.length()
+			if d < min_d and d > 0.0:
+				var n := to / d
+				tp = rp + n * min_d
+				position = tp - off
+				var vn: float = (vel - belt.rock_vel(i)).dot(n)
+				if vn < 0.0:
+					_impact(-vn, tp - n * Data.SHIP_R)
+					vel -= n * vn * 1.4
+					belt.bump(i, -n, -vn)
+				break
+	for s in belt.scrap_count():
+		var sp := belt.scrap_pos(s)
+		var sr: float = belt.scrap_r(s) * 0.9
+		if absf(sp.x - tp.x) > sr + reach or absf(sp.y - tp.y) > sr + reach or absf(sp.z - tp.z) > sr + reach:
+			continue
+		var to := tp - sp
+		var d := to.length()
+		var min_d: float = sr + Data.SHIP_R
+		if d < min_d and d > 0.0:
+			var n := to / d
+			tp = sp + n * min_d
+			position = tp - off
+			var vn := vel.dot(n)
+			if vn < 0.0:
+				_impact(-vn, tp - n * Data.SHIP_R)
+				vel -= n * vn * 1.4
+			belt.scrap_hit(s, n, vn, belt.scrap_vel(s).dot(n))
+
+
+## impact: a knock above the safe speed costs plating, shakes the camera, sparks and sounds; at zero plating the tug comes.
+func _impact(speed: float, at: Vector3) -> void:
+	if hit_cd > 0.0 or speed < IMPACT_SAFE or disabled:
+		return
+	hit_cd = 0.5
+	var dmg := roundi((speed - IMPACT_SAFE) * 0.09)
+	State.hull = max(0.0, State.hull - dmg)
+	shake = min(1.0, 0.3 + dmg / 60.0)
+	Audio.sfx("hit")
+	main.hud.damage_flash()
+	main.sparks.burst(at, 60 + dmg * 2, 260.0, Color("#ffb060"), 1.2)
+	toast.emit("Hull hit · −%d" % dmg, true)
+	if State.hull <= 0.0:
+		if tow.is_empty() and not docked:
+			request_tow("breach")
+		return
+	if State.hull < float(State.stat("hull")["hp"]) * 0.25 and not _low_hull_warned:
+		_low_hull_warned = true
+		toast.emit("Hull critical · repair at the cargo ship", true)
 
 
 # ---- the cargo ship: hangar capture and hull collision (ported from the capture rule and depotCollide)
@@ -933,6 +1033,9 @@ func enter_hangar(side: int) -> void:
 	if flown_out and State.tut < 0:
 		get_tree().create_timer(0.8).timeout.connect(func(): if docked and not hold: Audio.intercom("hangar_%d" % (1 + randi() % 4)))
 	release_lock()
+	_low_hull_warned = false
+	look_yaw = 0.0
+	look_pitch = 0.0
 	if not tow.is_empty() and tow["phase"] == "haul":
 		# tow delivered: charge the fee, patch a breached hull enough to fly, top up an empty tank, send the tug home
 		var fee := floori(State.credits * 0.15)
@@ -1191,6 +1294,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 	target = belt.ray_hit(origin, fwd, reach)
 	laser_on = false
 	_laser.visible = false
+	belt.set_spot_heat(0, Vector3.ZERO, 0.0, 1.0)
 	if not firing:
 		return
 	var end := origin + fwd * reach
@@ -1198,6 +1302,7 @@ func _tick_laser(dt: float, fwd: Vector3) -> void:
 		var oc: float = State.stat("overcharge")["mult"] if (overcharge and State.fuel > 0.0) else 1.0
 		var can_cut: bool = belt.ore[target] < 0 or int(Data.ORES[Data.ORE_KEYS[belt.ore[target]]]["unlock"]) <= int(State.up["laser"]) + 1
 		end = belt.rock_pos(target) - (belt.rock_pos(target) - origin).normalized() * belt.radius[target] * 0.85
+		belt.set_spot_heat(0, end, 1.0 if can_cut else 0.35, belt.radius[target] * 0.45)   # the beam cooks the stone where it lands
 		if can_cut:
 			laser_on = true
 			var rate: float = State.stat("laser")["rate"] * oc
@@ -1294,11 +1399,17 @@ func update_camera(dt: float) -> void:
 		return
 	var q := heading()
 	_cam_q = _cam_q.slerp(q, 1.0 - exp(-7.0 * dt)).normalized()
-	var b := Basis(_cam_q)
+	# free look turns the camera relative to the hull; the chase offset stays rigid on the ship's position
+	var look_q := Quaternion(Vector3.UP, look_yaw) * Quaternion(Vector3.RIGHT, look_pitch)
+	var b := Basis(_cam_q * look_q)
 	var f := -b.z
 	var u := b.y
 	var cam_pos := position - f * 88.0 * s + u * 30.0 * s
 	var look := position + f * 140.0 * s + u * 10.0 * s
+	if shake > 0.0:
+		shake = max(0.0, shake - dt * 1.8)
+		var sh := shake * shake * 6.0
+		cam_pos += Vector3(randf_range(-sh, sh), randf_range(-sh, sh), randf_range(-sh, sh))
 	cam.global_position = cam_pos
 	cam.look_at(look, u)
 

@@ -41,6 +41,7 @@ const CONTROLS := [
 	[["Shift"], "Afterburner: hold it with the throttle open and thrust and top speed multiply, ×2 with the first refit up to ×5 at the top level. It burns fuel far faster, so use it in bursts."],
 	[["R"], "Radar pulse · marks every ore rock in scanner range"],
 	[["LMB"], "Hold to fire the mining laser (Space or L too). The dish under the nose cuts whatever the crosshair is on until it breaks. It never picks targets by itself: keep the nose on the rock."],
+	[["RMB"], "Hold the right mouse button to look around without turning the ship; the view eases back to straight ahead when you let go."],
 	[["Q"], "Hover the mouse over a rock or the cargo ship (the label names it), then press Q to lock the crosshair on it. The ship steers itself to keep it in the crosshair (you keep the throttle and roll) until it breaks up or goes beyond 50,000 m. Hover a different target and press Q to switch directly to it. Press Q over the current target or empty space to release the lock. A locked object always shows its range, and its details sit top centre."],
 	[["F"], "Flashlight: a spot beam from the nose, on or off. While docked F hides and shows the cargo ship services instead."],
 	[["T"], "Out of fuel? T calls a tug from the cargo ship: it latches on with a tractor beam and hauls you into a hangar bay for 15% of your credits. A hull breach calls it by itself."],
