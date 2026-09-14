@@ -79,6 +79,10 @@ void sky() {
 }
 """
 
+const SHADOW_REACH := 3300.0          # the browser's 2,400 u shadow box round a focus 900 u ahead of the camera
+const SHADOW_REACH_CARRIER := 6500.0  # 5,600 u near the carrier, so the hangar and the hull shadow properly
+const CARRIER_NEAR := 11000.0
+
 var sun: DirectionalLight3D
 var env: Environment
 var sky_mat: ShaderMaterial
@@ -120,14 +124,14 @@ func setup(root: Node3D) -> void:
 	sun.light_color = Color("#fff4e4")
 	sun.light_energy = 1.7
 	sun.light_specular = 0.35   # the ore veins are near-mirror metal; a full point-sun highlight on them is a white blob
+	# shadows as the browser casts them: one orthographic box round the ship (extent 2,400 u ahead of the focus, 5,600 near
+	# the carrier), so the texels stay under a unit and no split seam or coarse far map ever lands on a rock face
 	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 26000.0
-	sun.directional_shadow_split_1 = 0.12
-	sun.directional_shadow_fade_start = 0.85
-	sun.directional_shadow_blend_splits = true
-	sun.shadow_bias = 0.06
-	sun.shadow_normal_bias = 2.2
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = SHADOW_REACH
+	sun.directional_shadow_fade_start = 0.8
+	sun.shadow_bias = 0.1
+	sun.shadow_normal_bias = 1.5
 	sun.light_angular_distance = 0.5
 	root.add_child(sun)
 
@@ -144,3 +148,10 @@ func set_zone(z: Dictionary) -> void:
 	sky_mat.set_shader_parameter("sun_color", (p["color"] as Color).lerp(Color.WHITE, 0.3))
 	var bg: Color = z["bg"]
 	sky_mat.set_shader_parameter("base_color", bg.lerp(Color(0.02, 0.027, 0.063), 0.5))
+
+
+## Every frame: the shadow box grows near the carrier, as the browser's does.
+func update(cam_pos: Vector3, carrier_pos: Vector3) -> void:
+	var reach: float = SHADOW_REACH_CARRIER if cam_pos.distance_to(carrier_pos) < CARRIER_NEAR else SHADOW_REACH
+	if sun.directional_shadow_max_distance != reach:
+		sun.directional_shadow_max_distance = reach

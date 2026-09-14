@@ -487,6 +487,7 @@ func _process(dt: float) -> void:
 	ship.tick(dt)
 	belt.tick(dt, ship.near_rocks)   # the rails' drift time for the rock shader, free rocks and scrap coasting, broken rocks growing back
 	carrier.bump_rocks(belt)   # rocks drifting into the carrier are shoved clear of its hull
+	lighting.update(ship.true_pos(), carrier.true_pos)   # the shadow box follows the ship, wider near the carrier
 	sparks.tick(dt, world_offset)
 	if Engine.get_process_frames() % 10 == 0:
 		belt.update_lod0(ship.true_pos(), ship.near_rocks)   # the rocks close to the ship draw their finest mesh
@@ -551,6 +552,7 @@ var _smoke_cr := 0.0
 var _smoke_tow_phase := ""
 var _smoke_tow_frame := 0
 var _smoke_bump := -1
+var _smoke_big := -1
 var _tut_last := -1
 var _tut_frames := 0
 
@@ -696,18 +698,60 @@ func _smoke_step() -> void:
 				for j in range(_smoke_count, belt.count):
 					frags.append("%s r=%.0f ore=%.0f" % [belt.rock_name(j), belt.radius[j], belt.amount[j]])
 				print("smoke: fragments %d · %s · nodes %d · dead awaiting respawn %d" % [belt.count - _smoke_count, ", ".join(frags), belt._frag_nodes.size(), belt._dead.size()])
-				# back to the carrier with a hold worth depositing: park 3,000 off the nearer mouth and ask approach control for the ship
-				State.add_cargo("copper", 120.0)
-				State.add_cargo("gold", 30.0)
-				var entry: int = carrier.nearest_side(ship.true_pos())
-				var start_l := CargoShip.opening_local(entry) + Vector3(300.0, 120.0, entry * 3000.0)
-				ship.position = carrier.to_true(start_l) - world_offset
-				ship.vel = carrier.vel
-				ship.set_heading(Ship.level_heading(carrier.dir(Vector3(0.0, 0.0, -entry))))
-				ship.update_camera(1.0)
-				ship.start_approach()
-				print("smoke: approach requested · cut=%s dist=%.0f" % [str(not ship.cut.is_empty()), ship.true_pos().distance_to(carrier.true_pos)])
-				_next("approach")
+				_next("closeup")
+		"closeup":
+			# a rail rock that has drifted since the zone loaded, seen from twelve radii (its chunk mesh) and then from two and a
+			# half (promoted to its own LOD 0 node): the two shots must both show the rock, textured
+			if _phase_frame == 1:
+				_smoke_park(_smoke_rail, 12.0)
+			if _phase_frame == 40:
+				_shot("smoke_closeup_far")
+				_smoke_park(_smoke_rail, 2.5)
+			if _phase_frame == 100:
+				_shot("smoke_closeup")
+				print("smoke: closeup lights · torch visible=%s energy=%.1f · spot light visible=%s energy=%.2f at %.0f u from the ship · engine lights %.2f · spot heat %.2f" % [str(ship.torch.visible), ship.torch.light_energy, str(ship._spot_light.visible), ship._spot_light.light_energy, ship._spot_light.global_position.distance_to(ship.position), ship._engine_lights[0].light_energy if ship._engine_lights.size() > 0 else -1.0, ship.spot_heat])
+				var l0: MultiMeshInstance3D = belt._lod0_nodes.get(_smoke_rail)
+				print("smoke: closeup · rock %d r=%.0f at %.0f u · drifted %.0f u · lod0 node %s · bounds %s · in near rocks %s · lod0 rocks %d" % [_smoke_rail, belt.radius[_smoke_rail], belt.rock_pos(_smoke_rail).distance_to(ship.true_pos()), (belt.rock_pos(_smoke_rail) - belt.pos[_smoke_rail]).length(), ("made, visible=%s, mesh %s, %d surfaces" % [str(l0.is_visible_in_tree()), str(l0.multimesh.mesh != null), l0.multimesh.mesh.get_surface_count() if l0.multimesh.mesh else 0]) if l0 else "MISSING", str(l0.custom_aabb) if l0 else "-", str(ship.near_rocks.has(_smoke_rail)), belt.lod0_count()])
+				var l0m: Mesh = l0.multimesh.mesh if l0 else null
+				var l1m: Mesh = belt._mesh_for(belt.shape[_smoke_rail], 1)
+				for pair in [["lod0", l0m], ["lod1", l1m]]:
+					var mm: Mesh = pair[1]
+					if mm == null:
+						continue
+					var parts: Array = []
+					for s in mm.get_surface_count():
+						var sm = mm.surface_get_material(s)
+						if sm is ShaderMaterial:
+							var arr := mm.surface_get_arrays(s)
+							var uv = arr[Mesh.ARRAY_TEX_UV]
+							parts.append("%s: albedo_tex=%s albedo=%s vcol=%s normal=%s orm=%s uv=%s verts=%d" % [sm.resource_name, str(sm.get_shader_parameter("has_albedo_tex")), str(sm.get_shader_parameter("albedo")), str(sm.get_shader_parameter("vertex_albedo")), str(sm.get_shader_parameter("has_normal")), str(sm.get_shader_parameter("has_orm")), "yes" if uv != null and uv.size() > 0 else "NONE", (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()])
+						else:
+							parts.append("surface %d material %s" % [s, str(sm)])
+					print("smoke: closeup %s mesh · %s" % [pair[0], " | ".join(parts)])
+				ship.torch_on = false
+			if _phase_frame == 130:
+				_shot("smoke_closeup_dark")
+				ship.torch_on = true
+				# the biggest rock about, seen from 2,700 u with the sun ahead: where the shadows land on it
+				var to_sun: Vector3 = sun.global_transform.basis.z
+				_smoke_big = -1
+				var big_r := 0.0
+				for j in belt.rocks_within(ship.true_pos(), 60000.0):
+					if belt.alive[j] == 1 and belt.radius[j] > big_r:
+						big_r = belt.radius[j]
+						_smoke_big = j
+				if _smoke_big >= 0:
+					var rp: Vector3 = belt.rock_pos(_smoke_big) - world_offset
+					var back: Vector3 = (to_sun + Vector3(0.3, -0.2, 0.0)).normalized()   # the ship between the sun and the rock, a little off the line
+					ship.position = rp + back * (big_r + 2700.0)
+					ship.look_at(rp, Vector3.UP)
+					ship.vel = Vector3.ZERO
+					ship.update_camera(1.0)
+			if _phase_frame == 175:
+				_shot("smoke_colossal")
+				if _smoke_big >= 0:
+					print("smoke: colossal · rock %d %s r=%.0f at %.0f u · lod0 node %s · shadow range %.0f" % [_smoke_big, belt.rock_name(_smoke_big), belt.radius[_smoke_big], belt.rock_pos(_smoke_big).distance_to(ship.true_pos()), str(belt._lod0_nodes.has(_smoke_big)), sun.directional_shadow_max_distance])
+				_smoke_go_approach()
 		"approach":
 			if _phase_frame == 120:
 				_shot("smoke_approach")
@@ -875,3 +919,29 @@ func _smoke_step() -> void:
 func _next(phase: String) -> void:
 	_phase = phase
 	_phase_frame = 0
+
+
+## Park the ship `radii` rock radii off rock `i`, looking at it, at rest.
+func _smoke_park(i: int, radii: float) -> void:
+	var rp: Vector3 = belt.rock_pos(i) - world_offset
+	var dir := (rp - ship.position).normalized()
+	ship.position = rp - dir * belt.radius[i] * radii
+	ship.look_at(rp, Vector3.UP)
+	ship.vel = Vector3.ZERO
+	ship.throttle = 0.0
+	ship.update_camera(1.0)
+
+
+## Back to the carrier with a hold worth depositing: park 3,000 off the nearer mouth and ask approach control for the ship.
+func _smoke_go_approach() -> void:
+	State.add_cargo("copper", 120.0)
+	State.add_cargo("gold", 30.0)
+	var entry: int = carrier.nearest_side(ship.true_pos())
+	var start_l := CargoShip.opening_local(entry) + Vector3(300.0, 120.0, entry * 3000.0)
+	ship.position = carrier.to_true(start_l) - world_offset
+	ship.vel = carrier.vel
+	ship.set_heading(Ship.level_heading(carrier.dir(Vector3(0.0, 0.0, -entry))))
+	ship.update_camera(1.0)
+	ship.start_approach()
+	print("smoke: approach requested · cut=%s dist=%.0f" % [str(not ship.cut.is_empty()), ship.true_pos().distance_to(carrier.true_pos)])
+	_next("approach")
